@@ -65,3 +65,45 @@ button { cursor: pointer; }
 .label { font-family: 'Martian Mono', monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--lavender); }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---------- Shell do app (compartilhado pelas páginas) ---------- */
+.grow { flex: 1; min-width: 0; }
+.dim { color: var(--lavender-3); }
+.error { color: var(--err); font-size: 13px; }
+.badge { height: 22px; padding: 0 9px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; background: rgba(154,160,224,.16); border: 1px solid rgba(154,160,224,.35); font-size: 12px; font-weight: 600; color: #DDE0FF; white-space: nowrap; }
+.badge.lime { background: rgba(230,255,0,.1); border-color: rgba(230,255,0,.4); color: var(--lime); }
+.btn.small, .btn-primary.small { height: 34px; font-size: 13px; padding: 0 14px; }
+.field.small { height: 36px; font-size: 13px; border-radius: 9px; padding: 0 10px; }
+.btn-danger { color: #FFC2CA; border-color: rgba(255,122,138,.35); }
+.btn-danger:hover:not(:disabled) { border-color: rgba(255,122,138,.7); }
+.btn-danger.solid { background: linear-gradient(180deg, #5A1F35 0%, #3E1426 100%); color: #FFE3E7; }
+.icon-btn { width: 30px; height: 30px; flex-shrink: 0; border-radius: 8px; border: 1px solid transparent; background: none; display: grid; place-items: center; color: var(--lavender); }
+.icon-btn:hover:not(:disabled) { border-color: var(--line-2); background: rgba(154,160,224,.06); }
+.icon-btn:disabled { opacity: .35; cursor: default; }
+
+/* Painel de vidro com borda acesa nos cantos (mesma receita da grade). */
+.panel-edge { padding: 1px; border-radius: 18px; background: var(--edge); }
+.panel { height: 100%; border-radius: 17px; background: linear-gradient(180deg, #17194A 0%, #10112F 100%); box-shadow: var(--inner); }
+
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.page-head h1 { font-size: 30px; line-height: 34px; overflow-wrap: anywhere; }
+.page-head p { color: var(--lavender); font-size: 14px; margin-top: 6px; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.side-list { width: 220px; flex-shrink: 0; padding: 20px 12px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+.side-list .label { padding: 0 8px 10px; color: var(--lavender-2); }
+.list-item { text-decoration: none; height: 36px; flex-shrink: 0; padding: 0 10px; border-radius: 9px; border: 1px solid transparent; background: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; color: var(--lavender); text-align: left; }
+.list-item span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-item .mono { font-size: 11px; color: var(--lavender-3); }
+.list-item:hover { background: rgba(154,160,224,.06); }
+.list-item.active { background: linear-gradient(180deg, #20235A 0%, #17194A 100%); border-color: rgba(154,160,224,.3); box-shadow: inset 0 1px 0 rgba(255,255,255,.1); color: var(--text); font-weight: 600; }
+.list-item.active .mono { color: var(--lavender); }
+.list-item.add { color: var(--lavender-2); justify-content: flex-start; }
+
+.content { flex: 1; min-width: 0; padding: 24px 28px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; }
+.empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--lavender); text-align: center; }
+
+input[type='checkbox'] { accent-color: var(--lime); width: 16px; height: 16px; }
+.check-label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--soft); cursor: pointer; }
+a.btn { text-decoration: none; color: var(--text); }
+@media (max-width: 1100px) { .side-list { width: 168px; } .content { padding: 20px; } }

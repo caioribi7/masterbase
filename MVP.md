@@ -1,71 +1,94 @@
 # Masterbase MVP
 
-Postgres com tela visual. Rust no servidor, Svelte na tela.
+Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas e edita dados. Rust no servidor, Svelte na tela.
 
 ## Temos
 
-**Servidor** (`server/`, Rust + Axum + sqlx)
-- Cadastro e login. Senha em argon2id.
-- Sessão em cookie httpOnly, Secure, SameSite=Strict. Banco guarda só hash SHA-256 do token. Expira em 7 dias.
-- Login sem usuário gasta o mesmo tempo. Não revela e-mail cadastrado.
-- 5 senhas erradas no mesmo e-mail bloqueiam por 15 min (429). Em memória.
-- Tabelas do schema `public`: listar, ler paginado (12 por página), filtrar ("coluna é valor"), editar célula, inserir linha.
-- Nome de tabela e coluna conferido no catálogo antes de entrar no SQL. Valor sempre parametrizado.
-- Valor inválido devolve 400 com mensagem clara, não 500.
-- Tipo do Postgres em palavra simples: número, texto, data, opção, e-mail, sim/não.
-- Auditoria: login, cadastro, edição, inserção vão para `masterbase.activity`.
-- Cabeçalhos: CSP só `self`, nosniff, no-referrer, sem iframe.
-- `unsafe` proibido no crate.
-- Migração automática ao subir.
-- Testes: escape de identificador, rótulo de tipo, bloqueio de login.
+**Páginas prontas**
+- **Login.** Sem nenhuma conta, abre no cadastro. A primeira conta administra. Depois disso, cadastro fecha.
+- **Início.** Tabelas, linhas, tamanho do banco, versão do Postgres. Barra por tabela. Últimas alterações.
+- **Tabelas.** Grade tipo planilha:
+  - filtro "é" ou "contém";
+  - ordenar clicando no cabeçalho;
+  - duplo clique edita a célula;
+  - nova linha;
+  - marcar várias linhas e apagar, com confirmação;
+  - exportar CSV;
+  - paginação de 12 em 12.
+- **Estrutura.** Sem SQL:
+  - criar tabela (coluna `id` vem sozinha);
+  - criar, renomear e apagar colunas;
+  - marcar obrigatório ou "sem repetidos";
+  - **ligação com outra tabela** (chave estrangeira);
+  - renomear tabela;
+  - apagar tabela digitando o nome.
+- **Atividade.** Quem mudou o quê e quando. Agrupado por dia. Filtro por tabela. Carregar mais.
+- Relações, Consultas, Acesso, API e chaves, Backups: aparecem apagados no menu.
 
-**Tela** (`web/`, Svelte 5 + Vite, 60 KB de JS)
-- Login e cadastro iguais ao Paper. Vidro, foco lima, um botão lima.
-- Tabelas: barra lateral, lista de tabelas com contagem, grade, filtro, paginação.
-- Duplo clique edita célula. Enter salva, Esc cancela.
-- Nova linha inline. Campo vazio usa valor padrão.
-- Exportar página atual em CSV.
-- Fontes servidas localmente. Nada chama Google.
+**Tipos em palavra simples**
+- texto, número, decimal, sim/não, data, data e hora, dados (jsonb), id único (uuid), ligação.
+- Tipos do seed também: opção (enum), e-mail (domain).
 
-**Dev**
-- Roda no WSL (Ubuntu 24.04): Rust + Postgres 16, porta 5432.
-- Senha aleatória em `.dev/database_url`. Fora do git.
-- `dev/seed.sql`: dados da Padaria Aurora.
-- Metadados no schema `masterbase` (inclui `_sqlx_migrations`). Tela só vê `public`.
+**Segurança**
+- Senha em argon2id. Sessão em cookie httpOnly, Secure, SameSite=Strict. Banco guarda só o hash do token. Expira em 7 dias. Sessões vencidas são limpas no login.
+- Login sem usuário gasta o mesmo tempo. Não revela e-mail.
+- 5 senhas erradas no mesmo e-mail: bloqueio de 15 min (429).
+- Cadastro só para a primeira conta, com trava na tabela contra corrida.
+- Nome de tabela e coluna existente: conferido no catálogo. Nome novo: validado e sempre entre aspas. Tipo: lista fixa. Valor: sempre parametrizado.
+- Apagar tabela sem CASCADE. Se outra tabela liga nela, o Postgres recusa e a tela explica.
+- Erro do Postgres vira frase clara (coluna repetida, ligação inválida, obrigatório vazio...). Resto vira 500 e vai pro log.
+- Consulta com mais de 15 s é cancelada. Corpo de requisição até 256 KB.
+- CSP `self` (fontes inclusas, sem data:), nosniff, no-referrer, sem iframe. `unsafe` proibido no crate.
+- Metadados no schema `masterbase`. A tela só vê `public`.
 
-**Testado**
-- API: cadastro, login, logout, senha errada, e-mail repetido, filtro, edição, inserção, valor inválido, chave primária bloqueada, injeção em nome de tabela e coluna.
-- Navegador: login, filtro, edição por duplo clique, nova linha, paginação.
+**Código**
+- `server/src/`: `main` (rotas), `auth`, `data` (linhas), `schema` (estrutura), `activity` (auditoria e início), `catalog` (nomes e tipos), `error`.
+- `web/src/`: `Shell` (menu), `Home`, `Tables`, `Structure`, `Activity`, `Login`, `Modal`, `Icon`, `lib.js` (rotas por hash, ícones, frases).
+- Tela: 90 KB de JS (31 KB gzip). Fontes locais.
+
+**Testes**
+- `cargo test`: 5 testes (aspas, rótulos, tipos, nomes, bloqueio de login).
+- `dev/wsl.sh smoke`: 40 checagens de ponta a ponta na API, num banco separado (`masterbase_smoke`, porta 8081).
+- Navegador (1440 e 1000 px):
+  - Início;
+  - criar tabela com ligação;
+  - nova linha ligada;
+  - ordenar;
+  - marcar e apagar;
+  - Atividade.
 
 ## Falta
 
 **Próximo**
-- Limite por IP e persistente (hoje só por e-mail, zera ao reiniciar).
-- "Meu servidor": hoje só visual. Falta conectar a um Postgres externo.
+- Página Relações: diagrama das ligações.
+- Página Consultas: "mostrar X onde Y" + aba SQL.
+- Acesso: convidar pessoas e definir papéis. Hoje só existe a primeira conta.
+- Valor padrão na coluna (ex.: "agora" em data e hora).
+- Importar CSV.
+- Limite de login por IP e persistente.
+- "Meu servidor": hoje é só visual. Falta conectar em Postgres externo.
 - Link por e-mail e chave de acesso (passkey): botões desativados.
-- TLS no sqlx (`tls-rustls`) para banco remoto.
-- Binário único com a tela embutida, e imagem Docker.
+- TLS no sqlx para banco remoto. Cookie Secure exige HTTPS fora do localhost.
+- Binário único com a tela embutida. Imagem Docker.
 - Usuário do Postgres com permissão mínima. Hoje usa o dono do banco.
-- Contagem de linhas usa `count(*)`. Lento acima de ~1M linhas.
-
-**Páginas sem tela ainda**
-- Início, Estrutura, Relações, Consultas, Acesso, API e chaves, Backups, Atividade, Configurações.
-- Seletor de projetos. Responsivo: abaixo de ~900 px os botões do topo apertam.
+- Contagem com `count(*)`. Lenta acima de ~1M linhas.
+- Tela de celular (abaixo de ~700 px).
 
 ## Rodar
 
-Build do Rust fica no WSL (Windows bloqueia executável sem assinatura).
+O build do Rust roda no WSL, porque o Windows bloqueia executável sem assinatura.
 
 Tela (Windows):
 ```
 cd web && npm install && npm run build
 ```
 
-Banco + servidor (WSL, root):
+Banco e servidor (WSL, root):
 ```
-bash dev/wsl.sh reset   # recria banco com dados de exemplo
+bash dev/wsl.sh reset   # recria o banco com os dados de exemplo
 bash dev/wsl.sh run     # servidor em 127.0.0.1:8080
+bash dev/wsl.sh smoke   # teste de ponta a ponta
 ```
-Abre `http://127.0.0.1:8080`.
+Abre `http://127.0.0.1:8080`. Banco novo abre no cadastro da primeira conta.
 
 Tela com recarga ao vivo: `cd web && npm run dev`, abre `http://localhost:5173`.

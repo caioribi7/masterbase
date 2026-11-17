@@ -12,6 +12,10 @@
   let showPw = $state(false);
   let busy = $state(false);
   let error = $state('');
+  let signupOpen = $state(false);
+
+  // Sem nenhuma conta, a tela abre no cadastro: a primeira pessoa administra a instância.
+  api('/setup').then((r) => { signupOpen = r.signup; if (r.signup) mode = 'signup'; }).catch(() => {});
 
   async function submit(e) {
     e.preventDefault();
@@ -36,7 +40,7 @@
     <div class="intro">
       <Glyph size={68} glow />
       <h1 class="brand">{mode === 'login' ? 'Entrar no Masterbase' : 'Criar conta'}</h1>
-      <p>{mode === 'login' ? 'Use o e-mail e a senha da sua conta.' : 'Leva menos de um minuto.'}</p>
+      <p>{mode === 'login' ? 'Use o e-mail e a senha da sua conta.' : 'Primeiro acesso. Essa conta vai administrar o Masterbase.'}</p>
     </div>
 
     <div class="edge">
@@ -86,13 +90,15 @@
       </form>
     </div>
 
+    {#if signupOpen}
     <p class="switch">
       {#if mode === 'login'}
-        Ainda não tem conta? <button type="button" onclick={() => ((mode = 'signup'), (error = ''))}>Criar conta grátis</button>
+        Ainda não tem conta? <button type="button" onclick={() => ((mode = 'signup'), (error = ''))}>Criar conta</button>
       {:else}
         Já tem conta? <button type="button" onclick={() => ((mode = 'login'), (error = ''))}>Entrar</button>
       {/if}
     </p>
+    {/if}
   </main>
 
   <footer>
