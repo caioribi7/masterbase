@@ -1,0 +1,40 @@
+name: Bug
+description: Algo não funciona como deveria
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Falha de segurança? Não abra issue. Veja o SECURITY.md.
+  - type: textarea
+    id: o-que
+    attributes:
+      label: O que aconteceu
+      description: E o que você esperava que acontecesse.
+    validations:
+      required: true
+  - type: textarea
+    id: passos
+    attributes:
+      label: Passos para repetir
+      placeholder: |
+        1. Abrir Tabelas
+        2. Clicar em...
+    validations:
+      required: true
+  - type: input
+    id: versao
+    attributes:
+      label: Versão ou commit do Masterbase
+    validations:
+      required: true
+  - type: input
+    id: ambiente
+    attributes:
+      label: Ambiente
+      description: Sistema do servidor, versão do Postgres, navegador.
+  - type: textarea
+    id: log
+    attributes:
+      label: Mensagem de erro ou log do servidor
+      description: Tire senhas e dados pessoais antes de colar.
+      render: text

@@ -1,0 +1,19 @@
+name: Ideia
+description: Sugerir uma função ou melhoria
+labels: [ideia]
+body:
+  - type: textarea
+    id: problema
+    attributes:
+      label: Que problema isso resolve
+      description: Conte a situação real. "Preciso mandar um relatório toda semana e hoje..."
+    validations:
+      required: true
+  - type: textarea
+    id: proposta
+    attributes:
+      label: Como você imagina que funcionaria
+  - type: textarea
+    id: hoje
+    attributes:
+      label: Como você contorna isso hoje

@@ -2,6 +2,9 @@
 name = "masterbase"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "Postgres com tela visual, para quem não sabe SQL"
+repository = "https://github.com/caioribi7/masterbase"
 
 [dependencies]
 axum = "0.8"
