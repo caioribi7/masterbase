@@ -16,10 +16,10 @@ check() {
 }
 has() { grep -q "$1" /tmp/mb-body || { echo "FALHA resposta sem '$1': $(cat /tmp/mb-body)"; fails=$((fails+1)); }; }
 
-PW="smoke-$(date +%s)-senha"
+PW="smoke-$(date +%s)-! grep -q 'postgres://|postgresql://' /tmp/mb-body"
 check 200 "cadastro aberto sem conta"        GET  /setup;  has '"signup":true'
 check 401 "sem sessão"                        GET  /tables
-check 400 "senha curta"                       POST /signup '{"name":"A","email":"a@b.c","password":"123"}'
+check 400 "! grep -q 'postgres://|postgresql://' /tmp/mb-body curta"                       POST /signup '{"name":"A","email":"a@b.c","password":"123"}'
 check 200 "primeira conta"                    POST /signup "{\"name\":\"Dona\",\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"
 check 200 "cadastro fecha depois"             GET  /setup;  has '"signup":false'
 check 403 "segunda conta barrada"             POST /signup "{\"name\":\"Outra\",\"email\":\"outra@smoke.test\",\"password\":\"$PW\"}"
@@ -82,6 +82,7 @@ key 403 "chave leitora não escreve"           POST /tables/clientes/rows '{"val
 key 403 "chave não mexe em estrutura"         POST /schema '{"name":"hack","columns":[]}'
 key 403 "chave não lista pessoas"             GET  /users
 key 403 "chave não faz backup"                POST /backups
+key 403 "chave não roda SQL"                   POST /sql '{"sql":"SELECT 1"}'
 KEY="mb_000000000000000000000000000000000000000000000000"
 key 401 "chave inventada"                     GET  /tables
 
@@ -111,6 +112,19 @@ check 200 "restaurar"                         POST "/backups/$BK/restore" '{"con
 check 200 "linhas voltaram"                   GET  '/tables/produtos?col=id&val=1'; has '"total":1'
 check 200 "apagar backup"                     DELETE "/backups/$BK"
 
+# ---- editor SQL e configurações ----
+check 200 "SQL lê"                            POST /sql '{"sql":"SELECT id, nome FROM clientes ORDER BY id LIMIT 2","read_only":true}'; has '"columns":\["id","nome"\]'
+check 200 "SQL vários comandos"               POST /sql '{"sql":"SELECT 1; SELECT 2 AS dois","read_only":true}'; has '"statements":2'
+check 400 "SQL só leitura barra UPDATE"       POST /sql '{"sql":"UPDATE clientes SET cidade = cidade","read_only":true}'; has 'leitura'
+check 400 "SQL com erro mostra o Postgres"    POST /sql '{"sql":"SELEC 1","read_only":true}'; has 'SELEC'
+check 200 "SQL escreve"                       POST /sql '{"sql":"UPDATE clientes SET cidade = cidade WHERE id = 1"}'; has '"affected":1'
+check 200 "SQL registra na atividade"         GET  /activity; has '"action":"sql"'
+check 200 "configurações"                     GET  /settings; has '"version"'
+! grep -q 'postgres://\|postgresql://' /tmp/mb-body || { echo "FALHA configurações mostram a URL do banco"; fails=$((fails+1)); }
+check 200 "mudar meu nome"                    PATCH /me '{"name":"Dona Smoke"}'
+check 200 "nome mudou"                        GET  /me; has 'Dona Smoke'
+check 400 "nome vazio"                        PATCH /me '{"name":"  "}'
+
 # ---- papéis na prática ----
 check 200 "sair (admin)"                      POST /logout
 check 200 "entrar como leitor"                POST /login "{\"email\":\"lia@smoke.test\",\"password\":\"$PW\"}"
@@ -119,12 +133,15 @@ check 403 "leitor não edita"                  PATCH /tables/clientes/rows '{"pk
 check 403 "leitor não apaga"                  DELETE /tables/clientes/rows '{"pks":[2]}'
 check 403 "leitor não cria tabela"            POST /schema '{"name":"z","columns":[]}'
 check 403 "leitor não vê pessoas"             GET  /users
-check 200 "leitor troca a própria senha"      POST /password "{\"current\":\"$PW\",\"new\":\"${PW}2\"}"
+check 403 "leitor não roda SQL"               POST /sql '{"sql":"SELECT 1","read_only":true}'
+check 403 "leitor não vê configurações"       GET  /settings
+check 200 "leitor troca a própria ! grep -q 'postgres://|postgresql://' /tmp/mb-body"      POST /password "{\"current\":\"$PW\",\"new\":\"${PW}2\"}"
 check 200 "sair (leitor)"                     POST /logout
 check 200 "entrar como editor"                POST /login "{\"email\":\"edu@smoke.test\",\"password\":\"$PW\"}"
 check 200 "editor edita"                      PATCH /tables/clientes/rows '{"pk":1,"column":"cidade","value":"Curitiba"}'
 check 403 "editor não apaga tabela"           DELETE /schema/produtos '{"confirm":"produtos"}'
 check 403 "editor não cria chave"             POST /keys '{"name":"x","role":"leitor"}'
+check 403 "editor não roda SQL"               POST /sql '{"sql":"SELECT 1","read_only":true}'
 check 200 "sair (editor)"                     POST /logout
 check 200 "entrar como admin"                 POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"
 check 200 "desativar editor"                  PATCH /users/2 '{"active":false}'
@@ -134,7 +151,10 @@ check 401 "desativado não entra"              POST /login "{\"email\":\"edu@smo
 check 200 "entrar de novo como admin" POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"
 check 200 "sair"                              POST /logout
 check 401 "sessão encerrada"                  GET  /me
-check 401 "senha errada"                      POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"errada-errada\"}"
+check 401 "! grep -q 'postgres://|postgresql://' /tmp/mb-body errada"                      POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"errada-errada\"}"
 check 200 "entrar"                            POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"
+
+code=$(curl -s -o /tmp/mb-body -w '%{http_code}' "${BASE%/api}/llms.txt")
+[ "$code" = 200 ] && grep -q 'Authorization: Bearer' /tmp/mb-body && echo "ok   documentação para IA em /llms.txt" || { echo "FALHA /llms.txt: $code"; fails=$((fails+1)); }
 
 echo; [ $fails -eq 0 ] && echo "tudo certo" || { echo "$fails falha(s)"; exit 1; }

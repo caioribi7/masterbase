@@ -73,6 +73,20 @@ Abra o endereço do painel. A tela pede a primeira conta. **Faça isso logo depo
 
 Daí em diante, siga o [guia de uso](guia-de-uso.md).
 
+## Acompanhar pelo terminal
+
+Enquanto roda, o Masterbase escreve no terminal uma linha por pedido à API e uma por mudança:
+
+```
+14:02:11Z POST /api/login 200 41ms
+14:02:11Z ana@padaria.com login {}
+14:03:40Z ana@padaria.com sql {"sql":"UPDATE clientes SET plano = 'pro' WHERE id = 3"}
+14:03:40Z POST /api/sql 200 12ms
+14:05:02Z login recusado para joao@padaria.com
+```
+
+A hora é UTC (o `Z` no fim). O caminho não inclui o que vem depois do `?`, e senhas nunca aparecem. Como serviço, as mesmas linhas vão para o journal: `journalctl -u masterbase -f`. Para desligar, `MB_LOG=off`.
+
 ## Backups
 
 Os backups da página Backups ficam em `~/.local/share/masterbase/backups`, no mesmo servidor. Isso protege contra erro humano (apagou a tabela errada), não contra perder o servidor. Copie essa pasta para outro lugar com a ferramenta que você já usa (rsync, restic, o backup do provedor).
@@ -100,6 +114,7 @@ O arquivo `~/.config/masterbase/masterbase.env` tem uma linha por item. Variáve
 | `MB_ADDR` | `127.0.0.1:8080` | Endereço e porta do painel. |
 | `MB_BACKUP_DIR` | `backups` | Pasta dos backups. |
 | `MB_INSECURE_COOKIE` | (vazio) | `1` aceita login sem HTTPS. Só para rede local. |
+| `MB_LOG` | (ligado) | `off` desliga as linhas de acompanhamento no terminal. |
 | `MB_CONFIG` | `~/.config/masterbase/masterbase.env` | Outro arquivo de configuração. |
 | `MB_WEB_DIR` | (vazio) | Serve a tela de uma pasta em vez da que vem dentro do programa. Só para desenvolver. |
 

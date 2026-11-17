@@ -13,6 +13,7 @@
   <a href="docs/guia-de-uso.md">Guia de uso</a> ·
   <a href="docs/instalacao.md">Instalação</a> ·
   <a href="docs/api.md">API</a> ·
+  <a href="docs/integracao-ia.md">Integrar com IA</a> ·
   <a href="MVP.md">O que tem e o que falta</a>
 </p>
 
@@ -30,10 +31,12 @@ O Masterbase fica na frente de um banco Postgres comum. Você cria tabelas, liga
 | **Estrutura** | Criar tabelas e colunas com tipos em português (texto, número, data, sim/não...). Marcar coluna como obrigatória ou sem repetidos. |
 | **Relações** | Ligar uma tabela a outra e ver o diagrama das ligações. |
 | **Consultas** | Montar "mostrar clientes onde plano é pro" clicando. Ver o SQL gerado. Salvar para usar de novo. |
-| **Acesso** | Três papéis: quem administra, editor e leitor. |
+| **Editor SQL** | Para quem sabe SQL: escrever e rodar comandos direto no Postgres. Só administradores. |
+| **Acesso** | Três papéis: administrador, editor e leitor. |
 | **API e chaves** | Chave para um site ou sistema ler e gravar nas tabelas. |
 | **Backups** | Fazer, baixar e restaurar cópias das tabelas. |
 | **Atividade** | Registro de quem mudou o quê e quando. |
+| **Configurações** | Seu nome e senha, como o servidor está rodando e o endereço da documentação para IA. |
 
 <table>
   <tr>
@@ -60,7 +63,7 @@ O instalador coloca o Postgres (se faltar), cria o banco e instala o comando. De
 masterbase
 ```
 
-O painel abre no navegador. Como o banco é novo, a primeira tela é o cadastro: **a primeira conta criada administra tudo**. Depois dela, o cadastro fecha e novas pessoas entram pela página Acesso.
+O painel abre no navegador. Como o banco é novo, a primeira tela é o cadastro: **a primeira conta criada é a do administrador**. Depois dela, o cadastro fecha e novas pessoas entram pela página Acesso.
 
 Para um servidor (acesso pela rede ou pela internet, HTTPS, ligar sozinho):
 
@@ -78,7 +81,13 @@ O passo a passo completo está em [instalação](docs/instalacao.md).
 | `masterbase servico` | Deixa rodando sozinho (Linux com systemd). |
 | `masterbase versao` | Mostra a versão. |
 
+Enquanto roda, o terminal mostra uma linha por pedido e por mudança (quem fez, o quê, comandos do editor SQL). Dá para deixar o servidor parado num canto, usar pela rede e acompanhar tudo por ali.
+
 O programa é um arquivo só, de uns 5 MB, com a tela dentro. Parado, usa uns 4 MB de memória.
+
+## Integrar com outro sistema
+
+Mande o arquivo [docs/integracao-ia.md](docs/integracao-ia.md) para uma IA (ChatGPT, Claude, Copilot) e peça o código. Ele descreve a API inteira, com exemplos. Todo Masterbase rodando também entrega esse texto em `/llms.txt`, então dá para passar só o endereço: `https://seu-masterbase/llms.txt`. A chave de API você cria na página API e chaves.
 
 ## Segurança
 
@@ -115,7 +124,7 @@ cd web && npm ci && npm run build                       # a tela vai para web/di
 cd server && DATABASE_URL=postgresql://... cargo run    # compila com a tela dentro
 cd server && cargo test                                 # testes do servidor
 cd web && npm run dev                                   # tela com recarga ao vivo em localhost:5173
-bash dev/smoke.sh                                       # 83 checagens na API (banco novo com dev/seed.sql)
+bash dev/smoke.sh                                       # 108 checagens na API (banco novo com dev/seed.sql)
 ```
 
 Para publicar uma versão: `git tag v0.2.0 && git push origin v0.2.0`. O GitHub compila para Linux e macOS e publica em Releases, de onde o instalador baixa.

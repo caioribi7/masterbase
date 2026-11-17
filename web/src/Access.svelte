@@ -1,5 +1,6 @@
 <script>
   import { api } from './api.js';
+  import { roleLabel } from './lib.js';
   import { isAdmin, session } from './session.svelte.js';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
@@ -15,7 +16,7 @@
   let form = $state({});
   let done = $state('');
 
-  const roles = [['admin', 'administra'], ['editor', 'editor'], ['leitor', 'leitor']];
+  const roles = [['admin', 'Administrador'], ['editor', 'Editor'], ['leitor', 'Leitor']];
   const fail = (e) => (e.status === 401 ? onAuthLost() : (error = e.message));
 
   async function load() {
@@ -74,7 +75,7 @@
   {#if done}<p class="ok" role="status">{done}</p>{/if}
 
   <div class="roles">
-    {#each [['Administra', 'Tudo: estrutura, pessoas, chaves e backups.'], ['Editor', 'Vê os dados e muda as linhas. Não mexe na estrutura.'], ['Leitor', 'Só vê os dados e roda consultas.']] as [t, d]}
+    {#each [['Administrador', 'Tudo: estrutura, pessoas, chaves, backups e editor SQL.'], ['Editor', 'Vê os dados e muda as linhas. Não mexe na estrutura.'], ['Leitor', 'Só vê os dados e roda consultas.']] as [t, d]}
       <div class="panel-edge"><div class="panel role"><span class="label">{t}</span><p>{d}</p></div></div>
     {/each}
   </div>
@@ -89,7 +90,7 @@
               <td><strong>{u.name}</strong>{#if u.id === me} <span class="badge">você</span>{/if}</td>
               <td>{u.email}</td>
               <td>
-                {#if u.id === me}<span class="badge lime">administra</span>
+                {#if u.id === me}<span class="badge lime">Administrador</span>
                 {:else}
                   <select class="field small pick" value={u.role} onchange={(e) => change(u, { role: e.currentTarget.value })} aria-label="Papel de {u.name}">
                     {#each roles as [v, l]}<option value={v}>{l}</option>{/each}
@@ -110,7 +111,7 @@
     </div></div>
     <p class="hint">Conta desativada não entra mais, mas continua no histórico da Atividade.</p>
   {:else}
-    <p class="hint">Seu papel é <strong>{session.user.role}</strong>. Só quem administra vê e muda a lista de pessoas.</p>
+    <p class="hint">Seu papel é <strong>{roleLabel(session.user.role)}</strong>. Só administradores veem e mudam a lista de pessoas.</p>
   {/if}
 </section>
 

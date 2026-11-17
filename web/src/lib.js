@@ -10,6 +10,8 @@ export const icons = {
   'API e chaves': 'M8 11a4 4 0 1 0 0 8a4 4 0 1 0 0-8M11 12l9-9M17 6l3 3',
   'Backups': 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M12 7v5l3 2',
   'Atividade': 'M3 12h4l3-8 4 16 3-8h4',
+  'Editor SQL': 'M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM7 9l3 3-3 3M13 15h4',
+  'Configurações': 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
   plus: 'M12 5v14M5 12h14',
   trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
   pencil: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4',
@@ -39,6 +41,9 @@ export function parseHash() {
 export const href = (page, arg) => `#/${page}${arg ? '/' + encodeURIComponent(arg) : ''}`;
 export const go = (page, arg) => (location.hash = href(page, arg));
 
+// Nome do papel para mostrar na tela.
+export const roleLabel = (r) => ({ admin: 'Administrador', editor: 'Editor', leitor: 'Leitor' })[r] ?? r;
+
 export const n = (x) => Number(x).toLocaleString('pt-BR');
 
 const rtf = new Intl.RelativeTimeFormat('pt-BR', { numeric: 'auto' });
@@ -56,7 +61,8 @@ export function phrase(a) {
   const T = { b: d.table };
   switch (a.action) {
     case 'login': return [{ t: 'entrou' }];
-    case 'signup': return [{ t: 'criou a conta de administração' }];
+    case 'signup': return [{ t: 'criou a conta de administrador' }];
+    case 'sql': return [{ t: 'rodou SQL: ' }, { b: d.sql?.length > 70 ? d.sql.slice(0, 70) + '…' : d.sql }];
     case 'update': return [{ t: 'editou ' }, { b: d.column }, { t: ' em ' }, T];
     case 'insert': return [{ t: 'adicionou uma linha em ' }, T];
     case 'delete': return [{ t: `apagou ${d.rows} ${d.rows === 1 ? 'linha' : 'linhas'} de ` }, T];
@@ -70,8 +76,8 @@ export function phrase(a) {
         ? [{ t: 'renomeou a coluna ' }, { b: d.column }, { t: ' para ' }, { b: d.renamed }, { t: ' em ' }, T]
         : [{ t: 'mudou a coluna ' }, { b: d.column }, { t: ' em ' }, T];
     case 'import': return [{ t: `importou ${d.rows} ${d.rows === 1 ? 'linha' : 'linhas'} em ` }, T];
-    case 'add_user': return [{ t: 'deu acesso a ' }, { b: d.email }, { t: ` como ${d.role}` }];
-    case 'change_user': return [{ t: d.active === false ? 'desativou ' : d.active ? 'reativou ' : d.password ? 'trocou a senha de ' : 'mudou o papel de ' }, { b: d.email }, ...(d.role ? [{ t: ` para ${d.role}` }] : [])];
+    case 'add_user': return [{ t: 'deu acesso a ' }, { b: d.email }, { t: ` como ${roleLabel(d.role)}` }];
+    case 'change_user': return [{ t: d.active === false ? 'desativou ' : d.active ? 'reativou ' : d.password ? 'trocou a senha de ' : 'mudou o papel de ' }, { b: d.email }, ...(d.role ? [{ t: ` para ${roleLabel(d.role)}` }] : [])];
     case 'change_password': return [{ t: 'trocou a própria senha' }];
     case 'add_key': return [{ t: 'criou a chave de API ' }, { b: d.name }];
     case 'drop_key': return [{ t: 'revogou a chave de API ' }, { b: d.name }];

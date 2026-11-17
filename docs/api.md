@@ -2,6 +2,8 @@
 
 Para ler e gravar nas tabelas a partir de um site ou sistema. A tela do Masterbase usa esta mesma API.
 
+> Vai pedir para uma IA escrever a integração? Mande [integracao-ia.md](integracao-ia.md) para ela. Todo Masterbase rodando também entrega esse texto em `/llms.txt`.
+
 ## Autenticação
 
 Crie uma chave em **API e chaves** (veja o [guia de uso](guia-de-uso.md#chaves-de-api)) e mande-a em toda requisição:
@@ -147,6 +149,7 @@ const { rows, total } = await r.json();
 
 ## O que a API não faz (ainda)
 
-- Não cria nem muda tabelas por chave. Isso é só pela tela, por quem administra.
+- Não roda SQL livre. O editor SQL existe só na tela, para administradores.
+- Não cria nem muda tabelas por chave. Isso é só pela tela, por um administrador.
 - Não tem limite de requisições por chave.
 - Não avisa em tempo real quando um dado muda.

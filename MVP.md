@@ -5,7 +5,7 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
 ## Temos
 
 **Páginas (todas do menu funcionam)**
-- **Login.** Sem nenhuma conta, abre no cadastro. A primeira conta administra. Depois disso, cadastro fecha.
+- **Login.** Sem nenhuma conta, abre no cadastro. A primeira conta é a do administrador. Sem botões de enfeite: só e-mail e senha. "Esqueci a senha" explica que um administrador troca. Depois disso, cadastro fecha.
 - **Início.** Tabelas, linhas, tamanho do banco, versão do Postgres. Barra por tabela. Últimas alterações.
 - **Tabelas.** Grade tipo planilha:
   - filtro "é" ou "contém";
@@ -30,8 +30,12 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
   - ordem e limite (até 500 linhas);
   - "Ver SQL" mostra o SELECT gerado;
   - salvar consulta e abrir de novo.
+- **Editor SQL.** Só administradores. Texto livre, Ctrl+Enter roda, vários comandos (mostra o último), até 1.000 linhas, "só leitura" ligado por padrão (transação READ ONLY). Erro vem com a mensagem do Postgres. Comando que muda dados vai para a Atividade.
+- **Configurações.** Mudar o próprio nome e senha. Endereço da documentação para IA (`/llms.txt`) com botão copiar. Administrador vê versão, banco, Postgres, endereço, quem acessa, pasta de backups e arquivo de configuração (sem a senha do banco).
+- **Relações.** Arrastar com o mouse move o diagrama; arrastar em cima de uma tabela não abre a tabela.
+- **Celular (até 700 px).** Menu vira barra de ícones embaixo; lista de tabelas vira faixa rolável em cima.
 - **Acesso.** Pessoas e papéis:
-  - administra: tudo;
+  - administrador: tudo;
   - editor: muda linhas, não mexe na estrutura;
   - leitor: só vê e consulta;
   - criar pessoa, mudar papel, dar senha nova, desativar e reativar;
@@ -78,17 +82,17 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
 
 **Testes**
 - `cargo test`: 9 testes (aspas, rótulos, tipos, nomes, bloqueio de login, SELECT das consultas, nome de backup, leitura da URL do banco).
-- `dev/wsl.sh smoke`: 83 checagens de ponta a ponta na API, num banco separado (`masterbase_smoke`, porta 8081). Cobre papéis, chaves, consultas, importar e restaurar backup.
+- `dev/wsl.sh smoke`: 108 checagens de ponta a ponta na API, num banco separado (`masterbase_smoke`, porta 8081). Cobre papéis, chaves, consultas, editor SQL, configurações, importar, restaurar backup e `/llms.txt`.
 - Instalador no WSL: instala, cria banco, `masterbase` serve a tela; segunda vez mantém a config. `configurar` testado com terminal simulado.
 - Navegador (1440 px): todas as páginas abertas; criar tabela com ligação, nova linha, ordenar, apagar, rodar consulta, fazer backup.
 
 ## Falta
 
-- Aba SQL livre nas Consultas. Precisa de um usuário do Postgres só de leitura e restrito a `public`; com o dono do banco seria possível ler as senhas.
+- Editor SQL roda como dono do banco: o administrador consegue ler o schema `masterbase` (hashes de senha e de chave). Para liberar o editor a editores, precisa de um usuário do Postgres restrito a `public`.
 - Regras por linha ("vendedor só vê os próprios pedidos"). Hoje o papel vale para o banco inteiro.
 - Backup automático (agendado) e backup fora do servidor.
-- Convite por e-mail, link mágico e passkey. Precisam de SMTP/WebAuthn. Hoje quem administra cria a pessoa e passa a senha.
-- "Meu servidor" no login: só visual. Falta conectar em Postgres externo e ter vários projetos.
+- Convite por e-mail, link mágico e passkey. Precisam de SMTP/WebAuthn. Hoje o administrador cria a pessoa e passa a senha.
+- Vários projetos (vários bancos) num Masterbase só.
 - Valor padrão na coluna (ex.: "agora" em data e hora). Mudar tipo de coluna existente.
 - Arrastar para ligar tabelas no diagrama. Hoje a ligação nasce na Estrutura.
 - Gráfico rápido do resultado da consulta.
@@ -96,7 +100,7 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
 - TLS no sqlx para banco remoto. Cookie Secure exige HTTPS fora do localhost.
 - Usuário do Postgres com permissão mínima. Hoje usa o dono do banco.
 - Contagem com `count(*)`: lenta acima de ~1M linhas. Download de backup carrega o arquivo na memória.
-- Tela de celular (abaixo de ~700 px).
+- Celular: funciona, mas a grade de Tabelas é larga e rola de lado. Falta uma vista em cartões.
 - Instalador: só apt e Homebrew. Fedora/Arch à mão. `servico` e o macOS não testados. Primeiro release ainda não publicado.
 
 ## Rodar

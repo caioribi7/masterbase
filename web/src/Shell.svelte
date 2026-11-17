@@ -1,6 +1,6 @@
 <script>
   import { api } from './api.js';
-  import { href } from './lib.js';
+  import { href, roleLabel } from './lib.js';
   import Glyph from './Glyph.svelte';
   import Icon from './Icon.svelte';
 
@@ -9,7 +9,8 @@
   // Páginas com tela pronta têm rota; as outras aparecem, mas apagadas.
   const all = [
     ['Início', 'inicio'], ['Tabelas', 'tabelas'], ['Estrutura', 'estrutura'], ['Relações', 'relacoes'], ['Consultas', 'consultas'],
-    ['Acesso', 'acesso'], ['API e chaves', 'chaves', true], ['Backups', 'backups', true], ['Atividade', 'atividade'],
+    ['Editor SQL', 'sql', true], ['Acesso', 'acesso'], ['API e chaves', 'chaves', true], ['Backups', 'backups', true], ['Atividade', 'atividade'],
+    ['Configurações', 'configuracoes'],
   ];
   // Terceiro campo = só para quem administra.
   const nav = $derived(all.filter(([, , adminOnly]) => !adminOnly || user.role === 'admin'));
@@ -42,7 +43,7 @@
     <div class="grow"></div>
     <div class="me">
       <span class="avatar">{initials}</span>
-      <span class="grow"><strong>{user.name}</strong><small>{user.role === 'admin' ? 'administra' : user.role}</small></span>
+      <span class="grow"><strong>{user.name}</strong><small>{roleLabel(user.role)}</small></span>
       <button class="icon-btn" onclick={logout} title="Sair" aria-label="Sair"><Icon name="logout" /></button>
     </div>
   </aside>
@@ -94,5 +95,17 @@
     .nav-item { width: 44px; padding: 0; justify-content: center; }
     .nav-item.active::before { left: -11px; }
     .me { flex-direction: column; padding: 12px 0 0; }
+  }
+
+  /* Celular: menu vira barra de ícones embaixo, como app. */
+  @media (max-width: 700px) {
+    .shell { height: 100dvh; flex-direction: column-reverse; }
+    .side { width: 100%; height: 60px; flex-shrink: 0; padding: 0 8px; flex-direction: row; align-items: center; gap: 2px; overflow-x: auto; overflow-y: hidden; border-right: 0; border-top: 1px solid var(--line); scrollbar-width: none; }
+    .logo, .side > .grow, .me .avatar { display: none; }
+    nav { flex-direction: row; gap: 2px; }
+    .nav-item { width: 44px; flex-shrink: 0; }
+    .nav-item.active::before { left: 14px; top: -11px; width: 16px; height: 3px; }
+    .me { padding: 0 0 0 6px; border-top: 0; border-left: 1px solid var(--line); flex-direction: row; }
+    .top { height: 52px; padding: 0 16px; }
   }
 </style>

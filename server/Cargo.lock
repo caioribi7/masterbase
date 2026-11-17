@@ -843,6 +843,7 @@ dependencies = [
  "argon2",
  "axum",
  "axum-extra",
+ "futures-util",
  "hex",
  "rand",
  "rust-embed",

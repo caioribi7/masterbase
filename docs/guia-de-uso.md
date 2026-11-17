@@ -9,15 +9,17 @@ Para quem vai usar o Masterbase no dia a dia. Não precisa saber SQL. Se você a
 - [Trabalhar com os dados](#trabalhar-com-os-dados)
 - [Importar uma planilha](#importar-uma-planilha)
 - [Consultas](#consultas)
+- [Editor SQL](#editor-sql)
 - [Dar acesso a outras pessoas](#dar-acesso-a-outras-pessoas)
 - [Chaves de API](#chaves-de-api)
 - [Backups](#backups)
 - [Atividade](#atividade)
+- [Configurações](#configurações)
 - [Problemas comuns](#problemas-comuns)
 
 ## Primeiro acesso
 
-Num Masterbase recém-instalado, a tela de entrada pede nome, e-mail e senha (10 caracteres ou mais). **Essa primeira conta administra tudo.** Depois que ela existe, a tela passa a mostrar só o login, e novas pessoas entram por convite seu (veja [Dar acesso a outras pessoas](#dar-acesso-a-outras-pessoas)).
+Num Masterbase recém-instalado, a tela de entrada pede nome, e-mail e senha (10 caracteres ou mais). **Essa primeira conta é a do administrador.** Depois que ela existe, a tela passa a mostrar só o login, e novas pessoas entram por convite seu (veja [Dar acesso a outras pessoas](#dar-acesso-a-outras-pessoas)).
 
 Se você errar a senha cinco vezes, o e-mail fica bloqueado por 15 minutos.
 
@@ -116,19 +118,32 @@ Condições disponíveis: `é`, `não é`, `contém`, `maior que`, `menor que`, 
 
 **Ver SQL** mostra o comando que o Masterbase montou. Serve para aprender e para copiar para outra ferramenta. **Salvar** guarda a consulta na lista da esquerda.
 
+## Editor SQL
+
+Para quem sabe SQL. Só administradores veem a página **Editor SQL**.
+
+Escreva o comando e clique em **Rodar** (ou Ctrl+Enter). Dá para mandar vários comandos separados por `;`: todos rodam juntos e a tela mostra o resultado do último. Aparecem até 1.000 linhas.
+
+- **Só leitura** vem ligado. Assim, nada é gravado: um UPDATE ou DELETE dá erro. Desligue quando quiser mudar dados de verdade.
+- Tudo roda numa transação. Se um comando falha, nenhum vale.
+- Comando que passa de 15 segundos é cancelado.
+- Comandos que mudam dados ficam registrados na Atividade.
+
+O editor roda com permissão total sobre o banco. Antes de um DROP ou um UPDATE grande, faça um backup.
+
 ## Dar acesso a outras pessoas
 
-Em **Acesso**, clique em **Nova pessoa**, preencha nome, e-mail, uma senha inicial e o papel. Passe a senha para a pessoa por um canal seguro; ela pode trocar depois em **Trocar minha senha**.
+Em **Acesso**, clique em **Nova pessoa**, preencha nome, e-mail, uma senha inicial e o papel. Passe a senha para a pessoa por um canal seguro; ela pode trocar depois em **Configurações**.
 
 | Papel | Pode |
 |---|---|
-| Administra | Tudo: estrutura, pessoas, chaves e backups. |
+| Administrador | Tudo: estrutura, pessoas, chaves, backups e editor SQL. |
 | Editor | Ver os dados, mudar, adicionar e apagar linhas, importar, salvar consultas. |
 | Leitor | Ver os dados e rodar consultas. |
 
 Na lista você também pode mudar o papel de alguém, dar uma senha nova (isso desconecta a pessoa de todos os aparelhos) e **desativar** a conta. Conta desativada não entra mais, mas o que ela fez continua no histórico.
 
-Você não consegue mudar o próprio papel nem se desativar. É de propósito: evita que o banco fique sem ninguém que administre.
+Você não consegue mudar o próprio papel nem se desativar. É de propósito: evita que o banco fique sem administrador.
 
 ## Chaves de API
 
@@ -139,7 +154,7 @@ Uma chave deixa um site ou sistema usar as tabelas sem passar pela tela. Em **AP
 3. Escolha se ela **só lê** ou **lê e edita linhas**.
 4. **Copie a chave na hora.** Ela aparece uma única vez.
 
-Se uma chave vazar, clique em **Revogar**: ela para de funcionar na hora. Como usar a chave no código está em [API](api.md).
+Se uma chave vazar, clique em **Revogar**: ela para de funcionar na hora. Como usar a chave no código está em [API](api.md). Para pedir a uma IA que faça a integração, mande o endereço que aparece em **Configurações** (termina em `/llms.txt`).
 
 ## Backups
 
@@ -155,6 +170,12 @@ O backup tem as tabelas e os dados. Contas, chaves e histórico de atividade nã
 
 A página **Atividade** mostra quem fez o quê: entradas, linhas criadas, editadas e apagadas, mudanças de estrutura, pessoas e chaves criadas, backups. Use o seletor no canto para ver só uma tabela.
 
+## Configurações
+
+Em **Configurações** você muda o seu nome e a sua senha. O quadro **Integrar com outro sistema** traz o endereço da documentação para IA, com botão para copiar.
+
+O administrador também vê como o Masterbase está rodando: versão, banco, endereço, quem pode acessar e onde ficam os backups. Para mudar isso, rode `masterbase configurar` no servidor e reinicie.
+
 ## Problemas comuns
 
 | Mensagem | O que quer dizer |
@@ -164,6 +185,6 @@ A página **Atividade** mostra quem fez o quê: entradas, linhas criadas, editad
 | "Esse valor já existe e a coluna não aceita repetidos." | A coluna é "sem repetidos" e outra linha já tem esse valor. |
 | "Ligação inválida: o registro ligado não existe ou ainda está em uso." | Você apontou para um `id` que não existe, ou tentou apagar uma linha que outra tabela usa. |
 | "Outras tabelas dependem disso. Remova as ligações antes." | Apague primeiro a coluna de ligação na outra tabela. |
-| "Seu acesso é só de leitura." | Seu papel é leitor. Peça a quem administra. |
+| "Seu acesso é só de leitura." | Seu papel é leitor. Peça a um administrador. |
 | "Muitas tentativas. Espere 15 minutos." | Cinco senhas erradas seguidas. |
 | "Tabela sem chave: só leitura." | A tabela foi criada fora do Masterbase sem chave primária. Dá para ver, não para editar. |

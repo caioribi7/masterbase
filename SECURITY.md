@@ -32,4 +32,4 @@ Já sabemos destes e eles estão em [MVP.md](MVP.md#falta). Não precisam de avi
 - a conexão com o Postgres não usa TLS;
 - o bloqueio de tentativas de login é por e-mail, em memória, e não por IP;
 - não há limite de requisições por chave de API;
-- enquanto nenhuma conta existe, quem acessar primeiro cria a conta que administra.
+- enquanto nenhuma conta existe, quem acessar primeiro cria a conta de administrador.

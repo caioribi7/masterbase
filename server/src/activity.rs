@@ -9,13 +9,30 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 
 pub async fn log(db: &PgPool, user_id: i64, action: &str, detail: Value) -> ApiResult<()> {
-    sqlx::query("INSERT INTO masterbase.activity (user_id, action, detail) VALUES ($1, $2, $3)")
-        .bind(user_id)
-        .bind(action)
-        .bind(detail)
-        .execute(db)
-        .await?;
+    let email: Option<String> = sqlx::query_scalar(
+        "WITH a AS (INSERT INTO masterbase.activity (user_id, action, detail) VALUES ($1, $2, $3))
+         SELECT email FROM masterbase.users WHERE id = $1",
+    )
+    .bind(user_id)
+    .bind(action)
+    .bind(&detail)
+    .fetch_optional(db)
+    .await?;
+    if logging() {
+        println!("{} {} {action} {detail}", clock(), email.as_deref().unwrap_or("?"));
+    }
     Ok(())
+}
+
+/// Log no terminal: liga por padrão, MB_LOG=off desliga.
+pub fn logging() -> bool {
+    std::env::var("MB_LOG").as_deref() != Ok("off")
+}
+
+/// Hora local do servidor não está disponível sem dependência extra: usa UTC, marcado com Z.
+pub fn clock() -> String {
+    let s = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    format!("{:02}:{:02}:{:02}Z", s / 3600 % 24, s / 60 % 60, s % 60)
 }
 
 async fn recent(db: &PgPool, table: Option<&str>, before: Option<i64>, limit: i64) -> ApiResult<Vec<Value>> {

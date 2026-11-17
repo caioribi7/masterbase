@@ -66,13 +66,39 @@
   });
 
   const lit = (l) => hover && (l.from === hover || l.to === hover);
+
+  // Arrastar com o mouse move o diagrama. Se arrastou, o clique na tabela não abre a Estrutura.
+  let drag = null;
+  let moved = $state(false);
+  let grabbing = $state(false);
+  function down(e) {
+    if (e.button !== 0 || e.pointerType === 'touch') return;
+    const el = e.currentTarget;
+    drag = { el, x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop, id: e.pointerId };
+    moved = false;
+  }
+  function move(e) {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!moved && Math.hypot(dx, dy) < 4) return;
+    if (!moved) { moved = true; grabbing = true; drag.el.setPointerCapture(drag.id); }
+    drag.el.scrollLeft = drag.left - dx;
+    drag.el.scrollTop = drag.top - dy;
+  }
+  function up() {
+    drag = null;
+    grabbing = false;
+  }
+  function click(e) {
+    if (moved) { e.preventDefault(); e.stopPropagation(); moved = false; }
+  }
 </script>
 
 <section class="content">
   <div class="page-head">
     <div>
       <h1 class="brand">Relações</h1>
-      <p>Como as tabelas se ligam. Para criar uma ligação, adicione uma coluna do tipo "ligação com…" na Estrutura.</p>
+      <p>Como as tabelas se ligam. Arraste com o mouse para mover. Para criar uma ligação, adicione uma coluna do tipo "ligação com…" na Estrutura.</p>
     </div>
     <div class="actions">
       <a class="glass btn" href={href('estrutura')}><Icon name="Estrutura" size={15} stroke="#C9CCEB" /> Abrir Estrutura</a>
@@ -82,7 +108,8 @@
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 
   {#if layout?.boxes.length}
-    <div class="panel-edge grow-box"><div class="panel canvas">
+    <div class="panel-edge grow-box"><!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="panel canvas" class:grabbing onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up} onclickcapture={click}>
       <div class="stage" style:width="{layout.width}px" style:height="{layout.height}px">
         <svg width={layout.width} height={layout.height} aria-hidden="true">
           {#each layout.lines as l}
@@ -111,9 +138,13 @@
 </section>
 
 <style>
-  .grow-box { flex: 1; min-height: 320px; }
-  .canvas { overflow: auto; padding: 24px; background-image: radial-gradient(rgba(154,160,224,.14) 1px, transparent 1px); background-size: 24px 24px; background-color: #10112F; }
+  .grow-box { flex: 1; min-height: 320px; display: flex; }
+  .grow-box > .canvas { flex: 1; min-width: 0; }
+  .canvas { overflow: auto; overscroll-behavior: contain; cursor: grab; user-select: none; scrollbar-width: thin; scrollbar-color: #2A2E6A transparent; padding: 24px; background-image: radial-gradient(rgba(154,160,224,.14) 1px, transparent 1px); background-size: 24px 24px; background-color: #10112F; }
+  .canvas.grabbing, .canvas.grabbing .box { cursor: grabbing; }
   .stage { position: relative; }
+  .box :global(*) { pointer-events: none; }
+  .box { -webkit-user-drag: none; }
   svg { position: absolute; inset: 0; overflow: visible; }
   path { fill: none; stroke: rgba(154,160,224,.45); stroke-width: 1.5; transition: stroke .18s ease-out; }
   circle { fill: #9AA0E0; transition: fill .18s ease-out; }

@@ -12,6 +12,8 @@
   import Access from './Access.svelte';
   import Keys from './Keys.svelte';
   import Backups from './Backups.svelte';
+  import SqlEditor from './SqlEditor.svelte';
+  import Settings from './Settings.svelte';
   import { session } from './session.svelte.js';
 
   let user = $state(undefined); // undefined = carregando, null = sem sessão
@@ -25,7 +27,7 @@
   loadMe();
 
   const lost = () => (user = null);
-  const names = { inicio: 'Início', tabelas: 'Tabelas', estrutura: 'Estrutura', relacoes: 'Relações', consultas: 'Consultas', acesso: 'Acesso', chaves: 'API e chaves', backups: 'Backups', atividade: 'Atividade' };
+  const names = { inicio: 'Início', tabelas: 'Tabelas', estrutura: 'Estrutura', relacoes: 'Relações', consultas: 'Consultas', acesso: 'Acesso', chaves: 'API e chaves', backups: 'Backups', atividade: 'Atividade', sql: 'Editor SQL', configuracoes: 'Configurações' };
   const page = $derived(names[route.page] ? route.page : 'inicio');
   // A página informa o nome que está aberto (ex.: primeira tabela quando a rota não tem nome).
   let open = $state(null);
@@ -47,6 +49,8 @@
       {:else if page === 'acesso'}<Access onAuthLost={lost} />
       {:else if page === 'chaves'}<Keys onAuthLost={lost} />
       {:else if page === 'backups'}<Backups onAuthLost={lost} />
+      {:else if page === 'sql'}<SqlEditor onAuthLost={lost} />
+      {:else if page === 'configuracoes'}<Settings onAuthLost={lost} onProfile={loadMe} />
       {:else}<Activity arg={route.arg} onAuthLost={lost} />{/if}
     {/key}
   </Shell>

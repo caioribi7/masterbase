@@ -48,7 +48,7 @@ impl User {
     }
 
     pub fn admin(&self) -> ApiResult<()> {
-        if self.role == Role::Admin && !self.via_key { Ok(()) } else { Err(ApiError(StatusCode::FORBIDDEN, "Só quem administra pode fazer isso.")) }
+        if self.role == Role::Admin && !self.via_key { Ok(()) } else { Err(ApiError(StatusCode::FORBIDDEN, "Só administradores podem fazer isso.")) }
     }
 }
 
@@ -119,7 +119,7 @@ pub async fn signup(State(db): State<PgPool>, jar: CookieJar, Json(b): Json<Sign
     .bind(hash)
     .fetch_optional(&mut *tx)
     .await?
-    .ok_or(ApiError(StatusCode::FORBIDDEN, "Cadastro fechado. Peça acesso a quem administra o projeto."))?;
+    .ok_or(ApiError(StatusCode::FORBIDDEN, "Cadastro fechado. Peça acesso a um administrador."))?;
     tx.commit().await?;
     log(&db, id, "signup", json!({})).await?;
     start_session(&db, jar, id).await
@@ -177,6 +177,9 @@ pub async fn login(State(db): State<PgPool>, jar: CookieJar, Json(b): Json<Login
         .unwrap_or(false);
     if !ok || id == 0 {
         attempts().fail(&email, Instant::now());
+        if crate::activity::logging() {
+            println!("{} login recusado para {email}", crate::activity::clock());
+        }
         return Err(ApiError(StatusCode::UNAUTHORIZED, "E-mail ou senha incorretos."));
     }
     attempts().0.remove(&email);

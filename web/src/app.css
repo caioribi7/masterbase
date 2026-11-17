@@ -127,3 +127,13 @@ a.btn { text-decoration: none; color: var(--text); }
 .modal-actions button:disabled { opacity: .5; cursor: not-allowed; }
 .code { padding: 14px 16px; border-radius: 12px; background: #0C0D28; border: 1px solid #1E2152; box-shadow: inset 0 1px 2px rgba(0,0,0,.5); font-family: 'Martian Mono', monospace; font-size: 12px; line-height: 20px; color: var(--soft); white-space: pre-wrap; overflow-wrap: anywhere; }
 .none { padding: 40px 20px; text-align: center; color: var(--lavender-2); }
+
+/* Celular: listas laterais viram faixa rolável em cima do conteúdo. */
+@media (max-width: 700px) {
+  .body { flex-direction: column; }
+  .side-list { width: auto; flex-direction: row; align-items: center; gap: 6px; padding: 10px 12px; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; flex-shrink: 0; scrollbar-width: none; }
+  .side-list .label { display: none; }
+  .list-item { flex-shrink: 0; }
+  .content { padding: 16px; }
+  .page-head h1 { font-size: 26px; line-height: 30px; }
+}
