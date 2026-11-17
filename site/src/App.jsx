@@ -30,6 +30,7 @@ const paths = {
   people: 'M9 11a3 3 0 1 0 0-6a3 3 0 1 0 0 6M3 20a6 6 0 0 1 12 0M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 6',
   shield: 'M12 3l8 3v6c0 5-3.5 8-8 9c-4.5-1-8-4-8-9V6z M9 12l2 2l4-4',
   arrow: 'M5 12h14M13 6l6 6l-6 6',
+  down: 'M6 9l6 6l6-6',
 };
 
 function Icon({ name, size = 18 }) {
@@ -126,7 +127,7 @@ const features = [
   ['link', 'Relações', 'Ligue pedidos a clientes sem escrever chave estrangeira. O diagrama mostra as ligações.'],
   ['filter', 'Consultas', 'Monte “clientes onde plano é pro” clicando. O SQL gerado aparece ao lado.'],
   ['people', 'Acesso', 'Administrador, editor e leitor. Cada pessoa vê e muda só o que o papel permite.'],
-  ['shield', 'Backups', 'Um por dia, criptografado. Os antigos são apagados sozinhos e a chave fica com você.'],
+  ['shield', 'Backups', 'Um por dia, criptografado, com cópia para outro disco ou nuvem. A chave fica com você.'],
 ];
 
 export default function App() {
@@ -136,6 +137,7 @@ export default function App() {
         <div className="wrap top-in">
           <a className="brand" href="#inicio"><Glyph size={26} /> Masterbase</a>
           <nav>
+            <a href="#tela">A tela</a>
             <a href="#recursos">Recursos</a>
             <a href="#servidor">Seu servidor</a>
             <a href="#integrar">Integrar</a>
@@ -164,9 +166,13 @@ export default function App() {
               <a className="glass btn" href={REPO}><GitHub size={16} /> Código no GitHub</a>
             </div>
           </div>
-          <div className="wrap hero-shot">
-            <Product />
-          </div>
+          <a className="next" href="#tela" aria-label="Ver a tela"><Icon name="down" size={20} /></a>
+        </section>
+
+        <section className="wrap section shot" id="tela">
+          <h2>Parece planilha. É Postgres.</h2>
+          <p className="section-lead">Filtre, ordene e edite com duplo clique. Cada mudança vai direto para o banco, e a Atividade registra quem fez.</p>
+          <Product />
         </section>
 
         <section className="wrap section" id="recursos">
@@ -211,7 +217,7 @@ export default function App() {
           </div>
         </section>
 
-        <section className="wrap section split" id="integrar">
+        <section className="wrap section split last" id="integrar">
           <div>
             <h2>Peça a integração para uma IA</h2>
             <p className="section-lead">Todo Masterbase serve a própria documentação em <code>/llms.txt</code>. Mande o endereço para o ChatGPT, o Claude ou o Copilot e peça o código para o seu site ler e gravar nas tabelas.</p>
