@@ -8,6 +8,7 @@ Postgres com tela visual. Rust no servidor, Svelte na tela.
 - Cadastro e login. Senha em argon2id.
 - Sessão em cookie httpOnly, Secure, SameSite=Strict. Banco guarda só hash SHA-256 do token. Expira em 7 dias.
 - Login sem usuário gasta o mesmo tempo. Não revela e-mail cadastrado.
+- 5 senhas erradas no mesmo e-mail bloqueiam por 15 min (429). Em memória.
 - Tabelas do schema `public`: listar, ler paginado (12 por página), filtrar ("coluna é valor"), editar célula, inserir linha.
 - Nome de tabela e coluna conferido no catálogo antes de entrar no SQL. Valor sempre parametrizado.
 - Valor inválido devolve 400 com mensagem clara, não 500.
@@ -16,7 +17,7 @@ Postgres com tela visual. Rust no servidor, Svelte na tela.
 - Cabeçalhos: CSP só `self`, nosniff, no-referrer, sem iframe.
 - `unsafe` proibido no crate.
 - Migração automática ao subir.
-- Testes: escape de identificador, rótulo de tipo.
+- Testes: escape de identificador, rótulo de tipo, bloqueio de login.
 
 **Tela** (`web/`, Svelte 5 + Vite, 60 KB de JS)
 - Login e cadastro iguais ao Paper. Vidro, foco lima, um botão lima.
@@ -39,7 +40,7 @@ Postgres com tela visual. Rust no servidor, Svelte na tela.
 ## Falta
 
 **Próximo**
-- Limite de tentativas no login (força bruta).
+- Limite por IP e persistente (hoje só por e-mail, zera ao reiniciar).
 - "Meu servidor": hoje só visual. Falta conectar a um Postgres externo.
 - Link por e-mail e chave de acesso (passkey): botões desativados.
 - TLS no sqlx (`tls-rustls`) para banco remoto.

@@ -11,7 +11,9 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::time::{Duration, Instant};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
 
@@ -148,10 +150,43 @@ struct LoginBody {
     password: String,
 }
 
+// Limite de tentativas por e-mail: 5 erros em 15 min bloqueiam até a janela acabar.
+// Em memória: zera ao reiniciar e não cobre vários e-mails vindos do mesmo IP.
+const MAX_FAILS: u32 = 5;
+const FAIL_WINDOW: Duration = Duration::from_secs(15 * 60);
+
+struct Attempts(HashMap<String, (u32, Instant)>);
+
+impl Attempts {
+    fn blocked(&self, key: &str, now: Instant) -> bool {
+        matches!(self.0.get(key), Some(&(n, start)) if n >= MAX_FAILS && now - start < FAIL_WINDOW)
+    }
+
+    fn fail(&mut self, key: &str, now: Instant) {
+        if self.0.len() > 10_000 {
+            self.0.retain(|_, (_, start)| now - *start < FAIL_WINDOW);
+        }
+        let e = self.0.entry(key.to_owned()).or_insert((0, now));
+        if now - e.1 >= FAIL_WINDOW {
+            *e = (0, now);
+        }
+        e.0 += 1;
+    }
+}
+
+fn attempts() -> MutexGuard<'static, Attempts> {
+    static A: OnceLock<Mutex<Attempts>> = OnceLock::new();
+    A.get_or_init(|| Mutex::new(Attempts(HashMap::new()))).lock().unwrap_or_else(|p| p.into_inner())
+}
+
 async fn login(State(db): State<PgPool>, jar: CookieJar, Json(b): Json<LoginBody>) -> ApiResult<(CookieJar, Json<Value>)> {
+    let email = b.email.trim().to_lowercase();
+    if attempts().blocked(&email, Instant::now()) {
+        return Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "Muitas tentativas. Espere 15 minutos."));
+    }
     let row: Option<(i64, String)> =
         sqlx::query_as("SELECT id, password_hash FROM masterbase.users WHERE email = $1")
-            .bind(b.email.trim().to_lowercase())
+            .bind(&email)
             .fetch_optional(&db)
             .await?;
     // Sem usuário, verifica contra um hash fixo: o tempo de resposta não revela quais e-mails existem.
@@ -160,8 +195,10 @@ async fn login(State(db): State<PgPool>, jar: CookieJar, Json(b): Json<LoginBody
         .map(|h| Argon2::default().verify_password(b.password.as_bytes(), &h).is_ok())
         .unwrap_or(false);
     if !ok || id == 0 {
+        attempts().fail(&email, Instant::now());
         return Err(ApiError(StatusCode::UNAUTHORIZED, "E-mail ou senha incorretos."));
     }
+    attempts().0.remove(&email);
     log(&db, id, "login", json!({})).await?;
     start_session(&db, jar, id).await
 }
@@ -416,6 +453,20 @@ mod tests {
     fn ident_escapes_quotes() {
         assert_eq!(ident("clientes"), "\"clientes\"");
         assert_eq!(ident("a\"; DROP TABLE x; --"), "\"a\"\"; DROP TABLE x; --\"");
+    }
+
+    #[test]
+    fn login_blocks_after_five_fails() {
+        let mut a = Attempts(HashMap::new());
+        let t = Instant::now();
+        for _ in 0..MAX_FAILS - 1 {
+            a.fail("x@y", t);
+        }
+        assert!(!a.blocked("x@y", t));
+        a.fail("x@y", t);
+        assert!(a.blocked("x@y", t));
+        assert!(!a.blocked("outro@y", t));
+        assert!(!a.blocked("x@y", t + FAIL_WINDOW));
     }
 
     #[test]
