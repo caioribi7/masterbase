@@ -17,7 +17,7 @@
   <a href="MVP.md">O que tem e o que falta</a>
 </p>
 
-![Página Tabelas](docs/img/tabelas.jpg)
+![Página Tabelas](docs/img/tabelas.png)
 
 O Masterbase fica na frente de um banco Postgres comum. Você cria tabelas, liga uma na outra, edita os dados como numa planilha e monta consultas escolhendo opções. O banco continua sendo Postgres de verdade: dá para conectar qualquer outra ferramenta nele quando precisar.
 
@@ -40,12 +40,12 @@ O Masterbase fica na frente de um banco Postgres comum. Você cria tabelas, liga
 
 <table>
   <tr>
-    <td><img src="docs/img/estrutura.jpg" alt="Página Estrutura"></td>
-    <td><img src="docs/img/relacoes.jpg" alt="Página Relações"></td>
+    <td><img src="docs/img/estrutura.png" alt="Página Estrutura"></td>
+    <td><img src="docs/img/relacoes.png" alt="Página Relações"></td>
   </tr>
   <tr>
-    <td><img src="docs/img/consultas.jpg" alt="Página Consultas"></td>
-    <td><img src="docs/img/inicio.jpg" alt="Página Início"></td>
+    <td><img src="docs/img/consultas.png" alt="Página Consultas"></td>
+    <td><img src="docs/img/inicio.png" alt="Página Início"></td>
   </tr>
 </table>
 
