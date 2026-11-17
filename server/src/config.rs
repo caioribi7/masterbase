@@ -107,6 +107,7 @@ pub fn configure() {
         "3" => {
             cfg.insert("MB_ADDR".into(), format!("127.0.0.1:{port}"));
             println!("\nAponte o Caddy ou Nginx para 127.0.0.1:{port}. Exemplo em docs/instalacao.md.");
+            internet(&mut cfg);
         }
         _ => {
             cfg.insert("MB_ADDR".into(), format!("127.0.0.1:{port}"));
@@ -120,6 +121,58 @@ pub fn configure() {
 
     save(&cfg);
     println!("\nSalvo em {}", path().display());
+}
+
+fn yes(question: &str, default: bool) -> bool {
+    let a = ask(&format!("{question} (s/n)"), if default { "s" } else { "n" });
+    a.to_lowercase().starts_with('s')
+}
+
+/// Painel na internet: endereço público, e-mail e login com Google/GitHub. Tudo opcional e grátis.
+/// Passo a passo de cada um em docs/login-e-email.md.
+fn internet(cfg: &mut BTreeMap<String, String>) {
+    let old = cfg.get("MB_URL").cloned().unwrap_or_default();
+    let mut url = ask("\nEndereço público do painel (ex.: https://painel.seudominio.com)", &old);
+    while !url.starts_with("https://") && !url.starts_with("http://") {
+        url = ask("Precisa começar com https://", "");
+    }
+    let url = url.trim_end_matches('/').to_string();
+    cfg.insert("MB_URL".into(), url.clone());
+
+    println!("\nE-mail: o convite e o \"esqueci a senha\" chegam sozinhos.");
+    println!("Grátis e sem domínio: Gmail com senha de app (myaccount.google.com/apppasswords).");
+    if yes("Ligar o e-mail?", cfg.contains_key("MB_SMTP_HOST")) {
+        for (key, question, default) in [
+            ("MB_SMTP_HOST", "Servidor SMTP", "smtp.gmail.com"),
+            ("MB_SMTP_PORT", "Porta", "465"),
+            ("MB_SMTP_USER", "Usuário (no Gmail, o seu e-mail)", ""),
+            ("MB_SMTP_PASS", "Senha (no Gmail, a senha de app de 16 letras)", ""),
+        ] {
+            let old = cfg.get(key).cloned().unwrap_or_else(|| default.to_string());
+            cfg.insert(key.into(), ask(question, &old).replace(' ', ""));
+        }
+    } else {
+        for k in ["MB_SMTP_HOST", "MB_SMTP_PORT", "MB_SMTP_USER", "MB_SMTP_PASS", "MB_MAIL_FROM"] {
+            cfg.remove(k);
+        }
+    }
+
+    for (env, label, console) in [
+        ("GOOGLE", "Google", "console.cloud.google.com/apis/credentials (ID do cliente OAuth, aplicativo da Web)"),
+        ("GITHUB", "GitHub", "github.com/settings/developers (New OAuth App)"),
+    ] {
+        let (id, secret) = (format!("MB_{env}_ID"), format!("MB_{env}_SECRET"));
+        if yes(&format!("\nEntrar com {label}?"), cfg.contains_key(&id)) {
+            println!("Crie o app em {console}.\nEndereço de retorno (callback): {url}/api/oauth/{}/callback", env.to_lowercase());
+            let old = cfg.get(&id).cloned().unwrap_or_default();
+            cfg.insert(id, ask("Client ID", &old));
+            let old = cfg.get(&secret).cloned().unwrap_or_default();
+            cfg.insert(secret, ask("Client secret", &old));
+        } else {
+            cfg.remove(&id);
+            cfg.remove(&secret);
+        }
+    }
 }
 
 fn save(cfg: &BTreeMap<String, String>) {
@@ -260,8 +313,9 @@ pub fn password_link(email: Option<String>) {
     });
     match result {
         Ok(token) => {
-            println!("Abra este link no navegador em até 24 horas (troque o endereço se usa um domínio):\n");
-            println!("    http://{addr}/#/senha/{token}\n");
+            let base = crate::mail::public_url().unwrap_or_else(|| format!("http://{addr}"));
+            println!("Abra este link no navegador em até 24 horas:\n");
+            println!("    {base}/#/senha/{token}\n");
             println!("Vale uma vez só. Ao criar a senha nova, as sessões abertas dessa conta são encerradas.");
         }
         Err(e) => {

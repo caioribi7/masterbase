@@ -6,6 +6,8 @@ mod catalog;
 mod config;
 mod data;
 mod error;
+mod mail;
+mod oauth;
 mod query;
 mod schema;
 mod sql;
@@ -106,6 +108,9 @@ async fn serve() {
         .route("/sessions/{id}", delete(auth::end_session))
         .route("/reset/check", post(auth::reset_check))
         .route("/reset", post(auth::reset_password))
+        .route("/forgot", post(auth::forgot))
+        .route("/oauth/{provider}", get(oauth::start))
+        .route("/oauth/{provider}/callback", get(oauth::callback))
         .route("/sql", post(sql::run))
         .route("/overview", get(activity::overview))
         .route("/activity", get(activity::list))

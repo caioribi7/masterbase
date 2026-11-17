@@ -112,7 +112,7 @@ pub async fn setup(State(db): State<PgPool>) -> ApiResult<Json<Value>> {
     )
     .fetch_one(&db)
     .await?;
-    Ok(Json(json!({ "signup": open, "name": name })))
+    Ok(Json(json!({ "signup": open, "name": name, "oauth": crate::oauth::enabled(), "mail": crate::mail::enabled() })))
 }
 
 #[derive(Deserialize)]
@@ -277,7 +277,16 @@ fn dummy_hash() -> &'static str {
     H.get_or_init(|| hash_password("masterbase-dummy-password").unwrap_or_default())
 }
 
+/// Secure por padrão. Só sai na rede local sem HTTPS (escolha explícita em `masterbase configurar`).
+pub fn secure_cookie() -> bool {
+    std::env::var("MB_INSECURE_COOKIE").as_deref() != Ok("1")
+}
+
 async fn start_session(db: &PgPool, jar: CookieJar, user_id: i64, headers: &HeaderMap) -> ApiResult<(CookieJar, Json<Value>)> {
+    Ok((new_session(db, jar, user_id, headers).await?, Json(json!({ "ok": true }))))
+}
+
+pub async fn new_session(db: &PgPool, jar: CookieJar, user_id: i64, headers: &HeaderMap) -> ApiResult<CookieJar> {
     let raw = random_token();
     let agent: String = headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or("").chars().take(300).collect();
     sqlx::query("DELETE FROM masterbase.sessions WHERE expires_at < now()").execute(db).await?;
@@ -296,11 +305,10 @@ async fn start_session(db: &PgPool, jar: CookieJar, user_id: i64, headers: &Head
     let cookie = Cookie::build((COOKIE, hex::encode(raw)))
         .max_age(time::Duration::days(days.into()))
         .http_only(true)
-        // Secure por padrão. Só sai na rede local sem HTTPS (escolha explícita em `masterbase configurar`).
-        .secure(std::env::var("MB_INSECURE_COOKIE").as_deref() != Ok("1"))
+        .secure(secure_cookie())
         .same_site(SameSite::Strict)
         .path("/");
-    Ok((jar.add(cookie), Json(json!({ "ok": true }))))
+    Ok(jar.add(cookie))
 }
 
 // ---------- sessões ----------
@@ -361,13 +369,51 @@ pub async fn new_password_link(db: &PgPool, user_id: i64) -> ApiResult<String> {
 }
 
 #[derive(Deserialize)]
+pub struct ForgotBody {
+    email: String,
+}
+
+/// "Esqueci a senha" na tela de login: manda o link por e-mail, se a conta existir.
+/// A resposta é sempre a mesma, para não revelar quais e-mails têm conta. O envio roda à parte pelo mesmo motivo (tempo).
+pub async fn forgot(State(db): State<PgPool>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(b): Json<ForgotBody>) -> ApiResult<Json<Value>> {
+    if !crate::mail::enabled() {
+        return Err(bad("Este servidor não manda e-mail. Peça o link a um administrador."));
+    }
+    let email = b.email.trim().to_lowercase();
+    let (by_email, by_ip) = (format!("forgot:{email}"), format!("forgot-ip:{}", client_ip(peer.ip(), &headers)));
+    {
+        let mut a = attempts();
+        let now = Instant::now();
+        if a.blocked(&by_email, 3, now) || a.blocked(&by_ip, 20, now) {
+            return Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "Muitos pedidos. Espere 15 minutos."));
+        }
+        a.fail(&by_email, now);
+        a.fail(&by_ip, now);
+    }
+    tokio::spawn(async move {
+        let id: Option<i64> = sqlx::query_scalar("SELECT id FROM masterbase.users WHERE email = $1 AND active")
+            .bind(&email)
+            .fetch_optional(&db)
+            .await
+            .ok()
+            .flatten();
+        if let Some(id) = id {
+            if let Ok(token) = new_password_link(&db, id).await {
+                crate::mail::password_link(&db, id, &token, false).await;
+            }
+        }
+    });
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
 pub struct ResetBody {
     token: String,
     password: Option<String>,
 }
 
 async fn token_user(db: &PgPool, token: &str) -> ApiResult<(i64, String, String)> {
-    const BAD: ApiError = ApiError(StatusCode::NOT_FOUND, "Link inválido ou vencido. Peça outro a um administrador.");
+    const BAD: ApiError = ApiError(StatusCode::NOT_FOUND, "Link inválido ou vencido. Peça outro.");
     let raw = hex::decode(token.trim()).map_err(|_| BAD)?;
     sqlx::query_as(
         "SELECT u.id, u.name, u.email FROM masterbase.password_tokens t JOIN masterbase.users u ON u.id = t.user_id

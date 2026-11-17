@@ -63,11 +63,15 @@ pub async fn create_user(user: User, State(db): State<PgPool>, Json(b): Json<New
     .ok_or(ApiError(StatusCode::CONFLICT, "Esse e-mail já tem conta."))?;
     log(&db, user.id, "add_user", json!({ "email": email, "role": b.role })).await?;
     let token = if invite { Some(crate::auth::new_password_link(&db, id).await?) } else { None };
-    Ok(Json(json!({ "id": id, "token": token })))
+    let mailed = match &token {
+        Some(t) => crate::mail::password_link(&db, id, t, true).await,
+        None => false,
+    };
+    Ok(Json(json!({ "id": id, "token": token, "mailed": mailed })))
 }
 
 /// Link para a pessoa criar uma senha nova (esqueceu a dela). Vale 24 horas, uma vez só.
-/// O servidor não manda e-mail: quem administra copia o link e envia como preferir.
+/// Com e-mail ligado, o link também vai para a caixa da pessoa. Sem, quem administra copia e envia.
 pub async fn password_link(user: User, State(db): State<PgPool>, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
     user.admin()?;
     let email: String = sqlx::query_scalar("SELECT email FROM masterbase.users WHERE id = $1 AND active")
@@ -77,7 +81,8 @@ pub async fn password_link(user: User, State(db): State<PgPool>, Path(id): Path<
         .ok_or(ApiError(StatusCode::NOT_FOUND, "Pessoa não encontrada ou desativada."))?;
     let token = crate::auth::new_password_link(&db, id).await?;
     log(&db, user.id, "password_link", json!({ "email": email })).await?;
-    Ok(Json(json!({ "token": token })))
+    let mailed = crate::mail::password_link(&db, id, &token, false).await;
+    Ok(Json(json!({ "token": token, "mailed": mailed })))
 }
 
 #[derive(Deserialize)]

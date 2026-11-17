@@ -224,6 +224,33 @@ check 200 "sessão atual continua"             GET  /me
 for _ in 1 2 3 4 5; do curl -s -o /dev/null -b "$JAR" -H 'content-type: application/json' -d '{"password":"errada"}' "$BASE/backups/key"; done
 check 429 "chave trava após 5 senhas erradas" POST /backups/key "{\"password\":\"$PW\"}"
 
+# ---- e-mail e login com GitHub (só quando o servidor sobe com o SMTP falso: SINK=arquivo) ----
+if [ -n "${SINK:-}" ]; then
+  check 200 "e-mail e GitHub ligados"         GET  /setup; has '"mail":true'; has '"oauth":\["github"\]'
+  grep -q 'To: gil@smoke.test' "$SINK" && grep -q 'Seu acesso ao' "$SINK" && echo "ok   convite chegou por e-mail" || { echo "FALHA convite sem e-mail"; fails=$((fails+1)); }
+  : > "$SINK"
+  check 200 "esqueci a senha"                 POST /forgot '{"email":"gil@smoke.test"}'; has '"ok":true'
+  check 200 "esqueci a senha, e-mail sem conta" POST /forgot '{"email":"ninguem@smoke.test"}'; has '"ok":true'
+  sleep 1
+  TOKEN=$(grep -o 'senha/[0-9a-f]\{64\}' "$SINK" | head -1 | cut -d/ -f2)
+  [ "$(grep -c '^To:' "$SINK")" = 1 ] && [ -n "$TOKEN" ] && echo "ok   link chegou só para quem tem conta" || { echo "FALHA e-mails: $(cat "$SINK")"; fails=$((fails+1)); }
+  check 200 "link do e-mail vale"             POST /reset/check "{\"token\":\"$TOKEN\"}"; has 'gil@smoke.test'
+  check 200 "esqueci a senha, 2ª vez"         POST /forgot '{"email":"ninguem@smoke.test"}'
+  check 200 "esqueci a senha, 3ª vez"         POST /forgot '{"email":"ninguem@smoke.test"}'
+  check 429 "esqueci a senha trava na 4ª"     POST /forgot '{"email":"ninguem@smoke.test"}'
+
+  loc() { curl -s -o /dev/null -D - -b "$JAR" -c "$JAR" "$BASE$1" | tr -d '\r' | sed -n 's/^location: //Ip'; }
+  L=$(loc /oauth/github)
+  case "$L" in https://github.com/login/oauth/authorize?client_id=smoke-id\&redirect_uri=http%3A%2F%2F127.0.0.1%3A8081%2Fapi%2Foauth%2Fgithub%2Fcallback*state=*) echo "ok   botão do GitHub leva ao GitHub";; *) echo "FALHA GitHub: $L"; fails=$((fails+1));; esac
+  grep -q mb_oauth "$JAR" && echo "ok   state guardado em cookie" || { echo "FALHA sem cookie de state"; fails=$((fails+1)); }
+  L=$(loc '/oauth/github/callback?code=x&state=forjado')
+  [ "$L" = "/#/entrar?erro=falhou" ] && echo "ok   volta com state forjado é recusada" || { echo "FALHA state forjado: $L"; fails=$((fails+1)); }
+  L=$(loc '/oauth/github/callback?code=x&state=y')
+  [ "$L" = "/#/entrar?erro=cancelado" ] && echo "ok   state não serve duas vezes" || { echo "FALHA state reusado: $L"; fails=$((fails+1)); }
+  L=$(loc /oauth/google)
+  [ "$L" = "/#/entrar?erro=desligado" ] && echo "ok   Google desligado não redireciona" || { echo "FALHA Google: $L"; fails=$((fails+1)); }
+fi
+
 code=$(curl -s -o /tmp/mb-body -w '%{http_code}' "${BASE%/api}/llms.txt")
 [ "$code" = 200 ] && grep -q 'Authorization: Bearer' /tmp/mb-body && echo "ok   documentação para IA em /llms.txt" || { echo "FALHA /llms.txt: $code"; fails=$((fails+1)); }
 

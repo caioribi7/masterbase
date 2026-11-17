@@ -5,7 +5,7 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
 ## Temos
 
 **Páginas (todas do menu funcionam)**
-- **Login.** Sem nenhuma conta, abre no cadastro. A primeira conta é a do administrador. Sem botões de enfeite: só e-mail e senha. "Esqueci a senha" explica como pedir o link (ou rodar `masterbase senha EMAIL` no servidor). Link de convite e de senha nova abre a tela "Criar senha". Depois disso, cadastro fecha.
+- **Login.** Sem nenhuma conta, abre no cadastro. A primeira conta é a do administrador. E-mail e senha, mais Google e GitHub quando ligados (só para quem já tem conta). "Esqueci a senha" manda o link por e-mail; sem e-mail configurado, explica como pedir o link (ou rodar `masterbase senha EMAIL` no servidor). Link de convite e de senha nova abre a tela "Criar senha". Depois disso, cadastro fecha.
 - **Início.** Tabelas, linhas, tamanho do banco, versão do Postgres. Barra por tabela. Últimas alterações.
 - **Tabelas.** Grade tipo planilha:
   - filtro "é" ou "contém";
@@ -97,8 +97,8 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
 
 - Regras por linha ("vendedor só vê os próprios pedidos"). Hoje o papel vale para o banco inteiro.
 - A chave dos backups fica no mesmo servidor: protege o arquivo que sai dele, não o servidor invadido.
-- Convite por e-mail, link mágico e passkey. Precisam de SMTP/WebAuthn. Hoje o administrador copia o link de convite e manda.
-- Login com Google/Microsoft (OIDC) e segundo fator (TOTP).
+- Link mágico e passkey.
+- Login com Microsoft e segundo fator (TOTP).
 - Vários projetos (vários bancos) num Masterbase só.
 - Arrastar para ligar tabelas no diagrama. Hoje a ligação nasce na Estrutura.
 - Gráfico rápido do resultado da consulta.

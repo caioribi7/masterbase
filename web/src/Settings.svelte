@@ -103,6 +103,9 @@
     ['Quem acessa', info.access === 'local' ? 'Só este computador (ou um proxy com HTTPS)' : 'Outras máquinas da rede'],
     ['Login', info.https_cookie ? 'Exige HTTPS fora deste computador' : 'Aceita sem HTTPS (rede local)'],
     ['Editor SQL', info.sql_editor ? 'Ligado, só lê e muda linhas' : 'Desligado (falta MB_SQL_URL)'],
+    ['Endereço público', info.url ?? 'Não definido (MB_URL)'],
+    ['E-mail', info.mail ? 'Ligado: convite e senha nova chegam sozinhos' : 'Desligado: os links são copiados à mão'],
+    ['Entrar com', info.oauth?.length ? info.oauth.map((p) => ({ google: 'Google', github: 'GitHub' })[p]).join(' e ') : 'Só e-mail e senha'],
     ['Pasta de backups', info.backup_dir],
     ['Arquivo de configuração', info.config],
   ] : []);

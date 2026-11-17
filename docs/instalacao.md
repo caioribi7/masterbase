@@ -99,6 +99,10 @@ masterbase senha email-da-conta@empresa.com
 
 Sai um link que vale 24 horas, uma vez só. Abra no navegador e crie a senha nova. Se o painel fica atrás de um domínio, troque `127.0.0.1:8080` pelo domínio antes de abrir.
 
+## Login com Google e GitHub, e e-mail
+
+Opcionais e grátis. `masterbase configurar` (opção 3) pergunta tudo; o passo a passo de cada serviço está em [login-e-email.md](login-e-email.md).
+
 ## Backups
 
 O Masterbase faz um backup por dia sozinho e apaga os antigos (por padrão ficam 7 diários e 4 semanais; muda na página Backups). Os arquivos ficam em `~/.local/share/masterbase/backups`, no mesmo servidor. Isso protege contra erro humano (apagou a tabela errada), não contra perder o servidor. Para isso, copie cada backup para fora (veja abaixo): os arquivos são criptografados, então podem ir para qualquer lugar.
@@ -190,7 +194,7 @@ Dá para apontar `DATABASE_URL` para um banco com tabelas prontas: elas aparecem
 - O Masterbase conecta como dono do banco. O editor SQL usa um papel separado, que só mexe em linhas, mas a tela Estrutura cria e apaga tabelas: quem administra o Masterbase manda nas tabelas.
 - A conexão com o Postgres não usa TLS. Mantenha o banco na mesma máquina ou numa rede privada.
 - O bloqueio de tentativas de login (5 por e-mail, 30 por IP, em 15 minutos) fica na memória: reiniciar o serviço zera.
-- O Masterbase não manda e-mail. Convites e links de senha são copiados e enviados por quem administra.
+- Sem e-mail configurado, convites e links de senha são copiados e enviados por quem administra. Para ligar o e-mail e o login com Google/GitHub, veja [login-e-email.md](login-e-email.md).
 - Um servidor atende um banco. Não há vários projetos.
 
 A lista completa está em [MVP.md](../MVP.md#falta).

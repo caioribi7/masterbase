@@ -6,8 +6,11 @@
   let { onDone, token = null } = $props();
   const link = untrack(() => token); // o link não muda enquanto a tela está aberta
 
-  let mode = $state(link ? 'reset' : 'login'); // 'login' | 'signup' | 'reset'
+  let mode = $state(link ? 'reset' : 'login'); // 'login' | 'signup' | 'reset' | 'forgot'
   let forgot = $state(false);
+  let sent = $state(false);
+  let oauth = $state([]); // provedores ligados no servidor
+  let mail = $state(false); // servidor manda e-mail
   let name = $state('');
   let email = $state('');
   let password = $state('');
@@ -20,16 +23,37 @@
   let linkError = $state('');
 
   // Sem nenhuma conta, a tela abre no cadastro: a primeira pessoa administra a instância.
-  api('/setup').then((r) => { instance = r.name; signupOpen = r.signup; if (r.signup && !link) mode = 'signup'; }).catch(() => {});
+  api('/setup').then((r) => { instance = r.name; signupOpen = r.signup; oauth = r.oauth ?? []; mail = r.mail; if (r.signup && !link) mode = 'signup'; }).catch(() => {});
+
+  // Volta do Google/GitHub com erro: #/entrar?erro=...
+  const oauthErrors = {
+    'sem-conta': 'Esse e-mail não tem conta aqui. Peça acesso a um administrador.',
+    'sem-email': 'A conta não tem e-mail verificado.',
+    cancelado: 'O login foi cancelado.',
+    desligado: 'Esse jeito de entrar não está ligado neste servidor.',
+    falhou: 'Não deu para entrar. Tente de novo.',
+  };
+  const back = location.hash.match(/erro=([a-z-]+)/);
+  if (back && !link) {
+    error = oauthErrors[back[1]] ?? oauthErrors.falhou;
+    history.replaceState(null, '', '#/');
+  }
+  const providers = { google: 'Google', github: 'GitHub' };
   if (link) api('/reset/check', { method: 'POST', body: { token: link } }).then((r) => (target = r)).catch((e) => (linkError = e.message));
 
-  const titles = { login: 'Entrar no Masterbase', signup: 'Criar conta', reset: 'Criar senha' };
+  const titles = { login: 'Entrar no Masterbase', signup: 'Criar conta', reset: 'Criar senha', forgot: 'Esqueci a senha' };
+  const to = (m) => { mode = m; error = ''; sent = false; };
 
   async function submit(e) {
     e.preventDefault();
     busy = true;
     error = '';
     try {
+      if (mode === 'forgot') {
+        await api('/forgot', { method: 'POST', body: { email } });
+        sent = true;
+        return;
+      }
       if (mode === 'reset') await api('/reset', { method: 'POST', body: { token: link, password } });
       else await api(`/${mode}`, { method: 'POST', body: mode === 'signup' ? { name, email, password } : { email, password } });
       onDone();
@@ -51,6 +75,7 @@
       <p>
         {#if mode === 'login'}Use o e-mail e a senha da sua conta.
         {:else if mode === 'signup'}Primeiro acesso. Essa conta vai administrar o Masterbase.
+        {:else if mode === 'forgot'}Mandamos um link para você criar uma senha nova.
         {:else if target}Para <strong>{target.name}</strong> · {target.email}
         {:else if !linkError}Conferindo o link…{/if}
       </p>
@@ -81,29 +106,51 @@
           <input type="email" value={target.email} autocomplete="username" hidden readonly />
         {/if}
 
+        {#if mode !== 'forgot'}
         <label>
-          <span class="row"><span class="label">{mode === 'reset' ? 'Senha nova (10 ou mais caracteres)' : 'Senha'}</span>{#if mode === 'login'}<button type="button" class="link" onclick={() => (forgot = !forgot)}>Esqueci a senha</button>{/if}</span>
+          <span class="row"><span class="label">{mode === 'reset' ? 'Senha nova (10 ou mais caracteres)' : 'Senha'}</span>{#if mode === 'login'}<button type="button" class="link" onclick={() => (mail ? to('forgot') : (forgot = !forgot))}>Esqueci a senha</button>{/if}</span>
           <span class="pw">
             <input class="field" type={showPw ? 'text' : 'password'} bind:value={password} autocomplete={mode === 'login' ? 'current-password' : 'new-password'} minlength={mode === 'login' ? undefined : 10} required />
             <button type="button" class="mono show" onclick={() => (showPw = !showPw)}>{showPw ? 'OCULTAR' : 'MOSTRAR'}</button>
           </span>
         </label>
+        {/if}
 
         {#if forgot && mode === 'login'}<p class="hint">Peça a um administrador o link de senha nova (página Acesso). Se você é o único administrador, rode <code>masterbase senha SEU-EMAIL</code> no servidor.</p>{/if}
         {#if error}<p class="error" role="alert">{error}</p>{/if}
 
-        <button class="btn-primary submit" disabled={busy || (mode === 'reset' && !target)}>{mode === 'login' ? 'Entrar' : mode === 'signup' ? 'Criar conta' : 'Salvar senha e entrar'}</button>
+        {#if sent}<p class="ok" role="status">Se esse e-mail tiver conta, o link chega em instantes. Olhe também o spam.</p>{/if}
+
+        <button class="btn-primary submit" disabled={busy || (mode === 'reset' && !target)}>{({ login: 'Entrar', signup: 'Criar conta', reset: 'Salvar senha e entrar', forgot: sent ? 'Mandar de novo' : 'Mandar link' })[mode]}</button>
+
+        {#if mode === 'login' && oauth.length}
+          <div class="or"><span>ou</span></div>
+          <div class="providers">
+            {#each oauth as p (p)}
+              <a class="glass btn provider" href="/api/oauth/{p}" aria-label="Entrar com {providers[p]}">
+                {#if p === 'google'}
+                  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.6 12.23c0-.68-.06-1.36-.18-2.02H12v3.83h5.4a4.6 4.6 0 0 1-2 3.02v2.5h3.24c1.9-1.75 2.96-4.33 2.96-7.33ZM12 22c2.7 0 4.98-.9 6.64-2.43l-3.24-2.5c-.9.6-2.05.95-3.4.95-2.6 0-4.82-1.76-5.6-4.12H3.04v2.58A10 10 0 0 0 12 22Zm-5.6-8.1a6 6 0 0 1 0-3.8V7.52H3.04a10 10 0 0 0 0 8.96L6.4 13.9ZM12 5.98c1.47 0 2.8.5 3.84 1.5l2.87-2.87A9.6 9.6 0 0 0 12 2a10 10 0 0 0-8.96 5.52L6.4 10.1C7.18 7.74 9.4 5.98 12 5.98Z"/></svg>
+                {:else}
+                  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.3 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
+                {/if}
+                {providers[p]}
+              </a>
+            {/each}
+          </div>
+        {/if}
 
       </form>
     </div>
     {/if}
 
-    {#if signupOpen && mode !== 'reset'}
+    {#if mode === 'forgot'}
+    <p class="switch">Lembrou? <button type="button" onclick={() => to('login')}>Voltar para o login</button></p>
+    {:else if signupOpen && mode !== 'reset'}
     <p class="switch">
       {#if mode === 'login'}
-        Ainda não tem conta? <button type="button" onclick={() => ((mode = 'signup'), (error = ''))}>Criar conta</button>
+        Ainda não tem conta? <button type="button" onclick={() => to('signup')}>Criar conta</button>
       {:else}
-        Já tem conta? <button type="button" onclick={() => ((mode = 'login'), (error = ''))}>Entrar</button>
+        Já tem conta? <button type="button" onclick={() => to('login')}>Entrar</button>
       {/if}
     </p>
     {/if}
@@ -148,6 +195,11 @@
 
   .submit { height: 48px; margin-top: 4px; font-size: 15px; }
   .error { color: var(--err); font-size: 13px; }
+  .ok { color: var(--soft); font-size: 13px; line-height: 20px; }
+  .or { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--lavender); }
+  .or::before, .or::after { content: ''; flex: 1; height: 1px; background: rgba(154,160,224,.18); }
+  .providers { display: flex; gap: 10px; }
+  .provider { flex: 1; height: 44px; justify-content: center; gap: 10px; white-space: nowrap; }
 
   .switch { font-size: 14px; color: var(--lavender); }
   .switch button { background: none; border: 0; color: var(--text); font-weight: 600; padding: 0; }

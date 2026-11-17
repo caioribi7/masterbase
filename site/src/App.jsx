@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import FluxLines from './FluxLines.jsx';
+import Terms from './Terms.jsx';
 
 const REPO = 'https://github.com/caioribi7/masterbase';
 const INSTALL = 'curl -fsSL https://raw.githubusercontent.com/caioribi7/masterbase/main/install.sh | sh';
@@ -131,6 +132,21 @@ const features = [
 ];
 
 export default function App() {
+  // #termos abre a página de termos; os outros endereços voltam para a página principal.
+  const [terms, setTerms] = useState(() => location.hash === '#termos');
+  useEffect(() => {
+    const on = () => {
+      const t = location.hash === '#termos';
+      setTerms(t);
+      if (t) scrollTo(0, 0);
+    };
+    addEventListener('hashchange', on);
+    return () => removeEventListener('hashchange', on);
+  }, []);
+  useEffect(() => {
+    if (!terms && location.hash.length > 1) document.querySelector(location.hash)?.scrollIntoView();
+  }, [terms]);
+
   return (
     <>
       <header className="top">
@@ -146,6 +162,7 @@ export default function App() {
         </div>
       </header>
 
+      {terms ? <Terms /> : (
       <main>
         <section className="hero" id="inicio">
           <FluxLines
@@ -236,11 +253,15 @@ export default function App() {
           </div>
         </section>
       </main>
+      )}
 
       <footer className="wrap foot">
         <a className="brand" href="#inicio"><Glyph size={22} /> Masterbase</a>
         <p><Icon name="lock" size={15} /> Código aberto. Seus dados ficam no seu servidor.</p>
-        <a className="gh" href={REPO}><GitHub size={16} /> GitHub</a>
+        <span className="foot-links">
+          <a href="#termos">Termos de uso</a>
+          <a className="gh" href={REPO}><GitHub size={16} /> GitHub</a>
+        </span>
       </footer>
     </>
   );

@@ -65,7 +65,7 @@
     try {
       const r = await api('/users', { method: 'POST', body: form });
       await load();
-      if (r.token) { copied = false; modal = { link: { name: form.name, url: linkFor(r.token), invite: true } }; }
+      if (r.token) { copied = false; modal = { link: { name: form.name, url: linkFor(r.token), invite: true, mailed: r.mailed } }; }
       else { modal = null; done = `${form.name} já pode entrar.`; }
     } catch (err) {
       busy = false;
@@ -77,7 +77,7 @@
     try {
       const r = await api(`/users/${u.id}/link`, { method: 'POST' });
       copied = false;
-      modal = { link: { name: u.name, url: linkFor(r.token), invite: false } };
+      modal = { link: { name: u.name, url: linkFor(r.token), invite: false, mailed: r.mailed } };
     } catch (e) { fail(e); }
   }
 
@@ -181,7 +181,11 @@
 {:else if modal?.link}
   <Modal title={modal.link.invite ? `Convite para ${modal.link.name}` : `Link de senha para ${modal.link.name}`} onClose={() => (modal = null)} width={520}>
     <div class="form">
-      <p class="hint">{modal.link.invite ? 'Mande este link para a pessoa criar a senha dela.' : 'Mande este link para a pessoa criar uma senha nova.'} Vale 24 horas e funciona uma vez só. Ele aparece só agora.</p>
+      {#if modal.link.mailed}
+        <p class="hint">Mandamos o link por e-mail. Se não chegar, copie e envie por outro caminho. Vale 24 horas e funciona uma vez só.</p>
+      {:else}
+        <p class="hint">{modal.link.invite ? 'Mande este link para a pessoa criar a senha dela.' : 'Mande este link para a pessoa criar uma senha nova.'} Vale 24 horas e funciona uma vez só. Ele aparece só agora.</p>
+      {/if}
       <code class="code linkbox">{modal.link.url}</code>
       {#if copied}<p class="ok" role="status">Link copiado.</p>{/if}
       <div class="modal-actions">
