@@ -68,7 +68,7 @@
           <ul>
             {#each o.recent as a}
               <li class="act">
-                <span class="who">{a.user ?? 'Alguém'}</span>
+                <span class="who">{a.user ?? 'Masterbase'}</span>
                 {#each phrase(a) as p}{#if p.b}<strong>{p.b}</strong>{:else}{p.t}{/if}{/each}
                 <time class="mono" datetime={a.at}>{ago(a.at)}</time>
               </li>

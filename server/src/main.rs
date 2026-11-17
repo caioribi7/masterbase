@@ -52,6 +52,8 @@ fn main() {
         Some("servico" | "serviço") => return config::service(),
         Some("versao" | "versão" | "--version" | "-V") => return println!("masterbase {}", env!("CARGO_PKG_VERSION")),
         Some("ajuda" | "--help" | "-h") => return config::help(),
+        Some("chave-backup") => return config::show_backup_key(),
+        Some("recuperar") => return config::recover(std::env::args().nth(2)),
         Some(other) => {
             eprintln!("comando desconhecido: {other}
 ");
@@ -71,6 +73,7 @@ fn main() {
         config::configure();
         config::load();
     }
+    config::ensure_backup_key();
     tokio::runtime::Runtime::new().expect("runtime").block_on(serve());
 }
 
@@ -88,6 +91,7 @@ async fn serve() {
         .expect("sem conexão com o Postgres");
     sqlx::query("CREATE SCHEMA IF NOT EXISTS masterbase").execute(&db).await.expect("sem permissão para criar schema");
     sqlx::migrate!().run(&db).await.expect("migração falhou");
+    tokio::spawn(backup::scheduler(db.clone()));
 
     let api = Router::new()
         .route("/setup", get(auth::setup))
@@ -112,6 +116,8 @@ async fn serve() {
         .route("/keys", get(access::list_keys).post(access::create_key))
         .route("/keys/{id}", delete(access::delete_key))
         .route("/backups", get(backup::list).post(backup::create))
+        .route("/backups/settings", get(backup::get_settings).patch(backup::change_settings))
+        .route("/backups/key", post(backup::show_key))
         .route("/backups/{name}", get(backup::download).delete(backup::delete))
         .route("/backups/{name}/restore", post(backup::restore))
         .route("/schema", get(schema::get_schema).post(schema::create_table))

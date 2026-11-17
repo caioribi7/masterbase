@@ -84,6 +84,9 @@ export function phrase(a) {
     case 'backup': return [{ t: 'fez um backup' }];
     case 'drop_backup': return [{ t: 'apagou um backup' }];
     case 'restore': return [{ t: 'restaurou o banco a partir de um backup' }];
+    case 'auto_backup': return [{ t: 'fez o backup automático do dia' }];
+    case 'backup_settings': return [{ t: d.enabled === false ? 'desligou o backup automático' : d.enabled ? 'ligou o backup automático' : 'mudou o horário do backup automático' }];
+    case 'backup_key': return [{ t: 'viu a chave de recuperação dos backups' }];
     default: return [{ t: a.action }];
   }
 }

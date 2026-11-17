@@ -45,7 +45,7 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
   - aparece inteira uma vez só; o banco guarda o hash;
   - revogar;
   - exemplos prontos em curl e JavaScript.
-- **Backups.** Fazer backup agora, baixar, apagar, restaurar (digitando "restaurar"). Antes de restaurar, guarda um backup do estado atual.
+- **Backups.** Automático todo dia no horário escolhido (padrão 03:00 em Brasília), guardando os 7 últimos e um por semana das 4 anteriores. Fazer backup agora, baixar, apagar, restaurar (digitando "restaurar"). Antes de restaurar, guarda um backup do estado atual. Tudo criptografado com age (X25519); a chave de recuperação aparece com a senha de quem administra e por `masterbase chave-backup`. `masterbase recuperar` restaura num servidor novo.
 - **Atividade.** Quem mudou o quê e quando. Agrupado por dia. Filtro por tabela. Carregar mais.
 
 **Tipos em palavra simples**
@@ -63,7 +63,7 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
 - Chave de API nunca administra: não mexe em estrutura, pessoas, chaves nem backups.
 - Nome de tabela e coluna existente: conferido no catálogo. Nome novo: validado e sempre entre aspas. Tipo e operador: lista fixa. Valor: sempre parametrizado.
 - Consultas: não existe SQL livre. O servidor monta o SELECT.
-- Backup: nome de arquivo só no formato que o servidor gera (nada de `../`). Senha do banco vai por variável de ambiente, não aparece na lista de processos. Restaurar roda em uma transação.
+- Backup: nome de arquivo só no formato que o servidor gera (nada de `../`). Senha do banco vai por variável de ambiente, não aparece na lista de processos. Restaurar roda em uma transação. A saída do `pg_dump` é criptografada enquanto é escrita (nunca há cópia aberta no disco), em arquivo `.part` com permissão 600, renomeado só no fim. Chave errada é recusada antes de tocar no banco.
 - Apagar tabela sem CASCADE. Se outra tabela liga nela, o Postgres recusa e a tela explica.
 - Erro do Postgres vira frase clara. Resto vira 500 e vai pro log.
 - Consulta com mais de 15 s é cancelada. Corpo de requisição até 256 KB (8 MB na importação).
@@ -81,8 +81,8 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
 - `web/src/`: `Shell` (menu), uma página por arquivo (`Home`, `Tables`, `Structure`, `Relations`, `Queries`, `Access`, `Keys`, `Backups`, `Activity`, `Login`), `Modal`, `Icon`, `lib.js`, `session.svelte.js`.
 
 **Testes**
-- `cargo test`: 9 testes (aspas, rótulos, tipos, nomes, bloqueio de login, SELECT das consultas, nome de backup, leitura da URL do banco).
-- `dev/wsl.sh smoke`: 108 checagens de ponta a ponta na API, num banco separado (`masterbase_smoke`, porta 8081). Cobre papéis, chaves, consultas, editor SQL, configurações, importar, restaurar backup e `/llms.txt`.
+- `cargo test`: 13 testes (aspas, rótulos, tipos, nomes, bloqueio de login, SELECT das consultas, nomes e datas de backup, horário do automático, rotação 7+4, chave, leitura da URL do banco).
+- `dev/wsl.sh smoke`: 116 checagens de ponta a ponta na API, num banco separado (`masterbase_smoke`, porta 8081). Cobre papéis, chaves, consultas, editor SQL, configurações, importar, backup criptografado, restaurar, chave de recuperação, horário do automático e `/llms.txt`.
 - Instalador no WSL: instala, cria banco, `masterbase` serve a tela; segunda vez mantém a config. `configurar` testado com terminal simulado.
 - Navegador (1440 px): todas as páginas abertas; criar tabela com ligação, nova linha, ordenar, apagar, rodar consulta, fazer backup.
 
@@ -90,7 +90,8 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
 
 - Editor SQL roda como dono do banco: o administrador consegue ler o schema `masterbase` (hashes de senha e de chave). Para liberar o editor a editores, precisa de um usuário do Postgres restrito a `public`.
 - Regras por linha ("vendedor só vê os próprios pedidos"). Hoje o papel vale para o banco inteiro.
-- Backup automático (agendado) e backup fora do servidor.
+- Copiar backups para fora do servidor sozinho (S3, outra máquina). Hoje é baixar ou copiar a pasta.
+- A chave dos backups fica no mesmo servidor: protege o arquivo que sai dele, não o servidor invadido.
 - Convite por e-mail, link mágico e passkey. Precisam de SMTP/WebAuthn. Hoje o administrador cria a pessoa e passa a senha.
 - Vários projetos (vários bancos) num Masterbase só.
 - Valor padrão na coluna (ex.: "agora" em data e hora). Mudar tipo de coluna existente.

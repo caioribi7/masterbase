@@ -158,13 +158,37 @@ Se uma chave vazar, clique em **Revogar**: ela para de funcionar na hora. Como u
 
 ## Backups
 
-Em **Backups**, **Fazer backup agora** guarda uma cópia de todas as tabelas no servidor.
+O Masterbase faz um backup sozinho todo dia, às 03:00 no começo (mude o horário na própria página). Ficam os 7 mais recentes e um por semana das 4 semanas anteriores; os mais velhos são apagados sozinhos. Se o servidor estava desligado no horário, o backup sai assim que ele ligar.
+
+**Fazer backup agora** guarda uma cópia na hora, por exemplo antes de uma mudança grande. Esses manuais não são apagados sozinhos.
+
+Na lista, cada backup mostra o tipo: **Automático**, **Manual** ou **Antes de restaurar** (a cópia que o Masterbase guarda antes de uma restauração).
 
 - **Baixar:** traz o arquivo para o seu computador. Faça isso de vez em quando: se o servidor quebrar, os backups que estão só nele vão junto.
 - **Restaurar:** as tabelas voltam a ser como eram naquele backup. Antes, o Masterbase guarda sozinho uma cópia do estado atual, para você poder voltar atrás.
 - **Apagar:** remove o arquivo do servidor.
 
-O backup tem as tabelas e os dados. Contas, chaves e histórico de atividade não entram. Ainda não existe backup automático.
+O backup tem as tabelas e os dados. Contas, chaves e histórico de atividade não entram.
+
+### Criptografia e chave de recuperação
+
+Todo backup sai criptografado. Quem pegar o arquivo (um pendrive perdido, uma pasta na nuvem) não consegue ler nada sem a **chave de recuperação**.
+
+A chave fica no servidor, e é por isso que o Masterbase restaura sem pedir nada. Mas se o servidor se perder, ela vai junto. Então guarde uma cópia:
+
+1. Em **Backups**, clique em **Ver chave** e digite sua senha.
+2. Copie a chave (começa com `AGE-SECRET-KEY-1`) para um gerenciador de senhas.
+3. Marque **Guardei a chave num lugar seguro**. O aviso amarelo some.
+
+Quem tiver a chave e um arquivo de backup lê os dados. Não mande a chave por e-mail nem chat.
+
+Para recuperar num servidor novo, instale o Masterbase, copie o arquivo para lá e rode:
+
+```bash
+masterbase recuperar backup-20261117-060000.dump.age
+```
+
+Ele pede a chave e restaura no banco configurado.
 
 ## Atividade
 

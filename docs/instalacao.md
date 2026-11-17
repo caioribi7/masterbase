@@ -89,7 +89,15 @@ A hora é UTC (o `Z` no fim). O caminho não inclui o que vem depois do `?`, e s
 
 ## Backups
 
-Os backups da página Backups ficam em `~/.local/share/masterbase/backups`, no mesmo servidor. Isso protege contra erro humano (apagou a tabela errada), não contra perder o servidor. Copie essa pasta para outro lugar com a ferramenta que você já usa (rsync, restic, o backup do provedor).
+O Masterbase faz um backup por dia sozinho e apaga os antigos (ficam 7 diários e 4 semanais). Os arquivos ficam em `~/.local/share/masterbase/backups`, no mesmo servidor. Isso protege contra erro humano (apagou a tabela errada), não contra perder o servidor. Copie essa pasta para outro lugar com a ferramenta que você já usa (rsync, restic, o backup do provedor): os arquivos são criptografados, então podem ir para qualquer lugar.
+
+**Guarde a chave de recuperação logo depois de instalar:**
+
+```bash
+masterbase chave-backup
+```
+
+Ela é criada na primeira vez que o Masterbase sobe e fica em `MB_BACKUP_KEY`, no arquivo de configuração. Sem ela, os backups não abrem fora deste servidor. Para recuperar numa máquina nova: instale, copie o arquivo e rode `masterbase recuperar arquivo.dump.age`. O formato é o [age](https://age-encryption.org), então `age -d -i chave.txt arquivo.dump.age > arquivo.dump` também abre.
 
 Esses backups têm só as suas tabelas. Para guardar também contas e histórico, faça um `pg_dump` do banco inteiro por fora.
 
@@ -113,6 +121,7 @@ O arquivo `~/.config/masterbase/masterbase.env` tem uma linha por item. Variáve
 | `DATABASE_URL` | (obrigatória) | Conexão com o Postgres. Caracteres como `@`, `:` ou `/` na senha vão em formato de URL (`%40`, `%3A`, `%2F`). |
 | `MB_ADDR` | `127.0.0.1:8080` | Endereço e porta do painel. |
 | `MB_BACKUP_DIR` | `backups` | Pasta dos backups. |
+| `MB_BACKUP_KEY` | (criada sozinha) | Chave que criptografa os backups. Não troque: backups feitos com a anterior deixam de abrir aqui. |
 | `MB_INSECURE_COOKIE` | (vazio) | `1` aceita login sem HTTPS. Só para rede local. |
 | `MB_LOG` | (ligado) | `off` desliga as linhas de acompanhamento no terminal. |
 | `MB_CONFIG` | `~/.config/masterbase/masterbase.env` | Outro arquivo de configuração. |

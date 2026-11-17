@@ -23,6 +23,7 @@ O projeto está na versão 0.x. Só o código mais recente da branch `main` rece
 - Injeção de SQL em qualquer rota.
 - Sequestro de sessão, ou vazamento de senha, token de sessão ou chave de API.
 - Ler ou escrever arquivos fora da pasta de backups.
+- Ver a chave de recuperação dos backups sem a senha de um administrador, ou abrir um backup sem a chave.
 
 ## Limites conhecidos
 

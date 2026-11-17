@@ -59,7 +59,7 @@
       <div class="item">
         <span class="ico" class:warn={a.action.startsWith('drop') || a.action === 'delete'}><Icon name={icon(a.action)} size={14} /></span>
         <p>
-          <span class="who">{a.user ?? 'Alguém'}</span>
+          <span class="who">{a.user ?? 'Masterbase'}</span>
           {#each phrase(a) as p}{#if p.b}<strong>{p.b}</strong>{:else}{p.t}{/if}{/each}
         </p>
         <time class="mono" datetime={a.at} title={ago(a.at)}>{time(a.at)}</time>

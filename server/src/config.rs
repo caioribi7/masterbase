@@ -12,6 +12,8 @@ pub fn help() {
          masterbase              abre o painel\n\
          masterbase configurar   muda banco, porta e quem pode acessar\n\
          masterbase servico      deixa rodando sozinho ao ligar o servidor (Linux, com sudo)\n\
+         masterbase chave-backup mostra a chave que abre os backups (guarde fora do servidor)\n\
+         masterbase recuperar F  restaura o backup F no banco configurado, mesmo em outra máquina\n\
          masterbase versao       mostra a versão\n\n\
          Configuração em {}",
         env!("CARGO_PKG_VERSION"),
@@ -120,20 +122,121 @@ pub fn configure() {
 }
 
 fn save(cfg: &BTreeMap<String, String>) {
+    write(cfg).expect("não deu para salvar a configuração");
+}
+
+fn write(cfg: &BTreeMap<String, String>) -> std::io::Result<()> {
     let file = path();
     if let Some(dir) = file.parent() {
-        std::fs::create_dir_all(dir).expect("não deu para criar a pasta de configuração");
+        std::fs::create_dir_all(dir)?;
     }
     let mut text = String::from("# Configuração do Masterbase. Edite com `masterbase configurar`.\n");
     for (k, v) in cfg {
         text.push_str(&format!("{k}={v}\n"));
     }
-    std::fs::write(&file, text).expect("não deu para salvar a configuração");
-    // A senha do banco está aqui: só o dono lê.
+    // A senha do banco e a chave dos backups estão aqui: só o dono lê. Permissão antes do conteúdo.
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts.open(&file)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).ok();
+        f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    f.write_all(text.as_bytes())
+}
+
+/// Garante a chave dos backups. Na primeira vez, gera e grava no arquivo de configuração.
+/// Se não der para gravar, os backups saem sem criptografia: uma chave que some ao reiniciar perderia todos eles.
+pub fn ensure_backup_key() {
+    if let Ok(k) = std::env::var("MB_BACKUP_KEY") {
+        if crate::backup::parse_key(&k).is_none() {
+            eprintln!("MB_BACKUP_KEY inválida: precisa ser uma chave AGE-SECRET-KEY-1... Corrija em {}", path().display());
+            std::process::exit(1);
+        }
+        return;
+    }
+    let key = crate::backup::new_key();
+    let mut cfg = read();
+    cfg.insert("MB_BACKUP_KEY".into(), key.clone());
+    match write(&cfg) {
+        Ok(()) => {
+            std::env::set_var("MB_BACKUP_KEY", key);
+            println!("Criei a chave que criptografa os backups. Guarde uma cópia fora deste servidor: `masterbase chave-backup` mostra.");
+        }
+        Err(e) => eprintln!("Não deu para gravar a chave dos backups em {} ({e}). Os backups vão sair sem criptografia.", path().display()),
+    }
+}
+
+pub fn show_backup_key() {
+    load();
+    match std::env::var("MB_BACKUP_KEY") {
+        Ok(k) => {
+            println!("{}", k.trim());
+            eprintln!("\nGuarde num gerenciador de senhas. Sem ela, os backups não abrem em outra máquina.");
+        }
+        Err(_) => {
+            eprintln!("Ainda não há chave. Ela é criada na primeira vez que o `masterbase` abre.");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `masterbase recuperar ARQUIVO`: restaura no banco da configuração. Serve para o servidor que morreu:
+/// instala o Masterbase numa máquina nova, copia o arquivo e roda isto com a chave guardada.
+pub fn recover(file: Option<String>) {
+    let Some(file) = file else {
+        eprintln!("uso: masterbase recuperar ARQUIVO.dump.age");
+        std::process::exit(2);
+    };
+    let file = PathBuf::from(file);
+    if !file.is_file() {
+        eprintln!("arquivo não encontrado: {}", file.display());
+        std::process::exit(1);
+    }
+    load();
+    let Ok(url) = std::env::var("DATABASE_URL") else {
+        eprintln!("sem banco configurado: rode `masterbase configurar` antes");
+        std::process::exit(1);
+    };
+    if !std::io::stdin().is_terminal() {
+        eprintln!("rode `masterbase recuperar` num terminal");
+        std::process::exit(1);
+    }
+    let db = url.rsplit('/').next().unwrap_or("").split('?').next().unwrap_or("").to_string();
+    println!("As tabelas do banco `{db}` vão ficar como estão no backup. O que mudou depois dele se perde nessas tabelas.");
+    if ask("Digite restaurar para continuar", "") != "restaurar" {
+        println!("Nada foi feito.");
+        return;
+    }
+    let mut key = std::env::var("MB_BACKUP_KEY").ok().and_then(|k| crate::backup::parse_key(&k));
+    loop {
+        if crate::backup::is_encrypted(&file) && key.is_none() {
+            key = crate::backup::parse_key(&ask("Chave de recuperação (AGE-SECRET-KEY-1...)", ""));
+            if key.is_none() {
+                println!("Essa não é uma chave válida.");
+                continue;
+            }
+        }
+        match crate::backup::restore_file(&file, &url, key.as_ref()) {
+            Ok(()) => {
+                println!("Pronto. Banco restaurado a partir de {}.", file.display());
+                return;
+            }
+            Err(crate::backup::Fail::Key) => {
+                println!("Essa chave não abre este arquivo. Use a do servidor onde o backup foi feito.");
+                key = None;
+            }
+            Err(e) => {
+                eprintln!("Falhou, o banco não mudou: {}", e.text());
+                std::process::exit(1);
+            }
+        }
     }
 }
 

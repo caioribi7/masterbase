@@ -16,10 +16,10 @@ check() {
 }
 has() { grep -q "$1" /tmp/mb-body || { echo "FALHA resposta sem '$1': $(cat /tmp/mb-body)"; fails=$((fails+1)); }; }
 
-PW="smoke-$(date +%s)-! grep -q 'postgres://|postgresql://' /tmp/mb-body"
+PW="smoke-$(date +%s)-senha"
 check 200 "cadastro aberto sem conta"        GET  /setup;  has '"signup":true'
 check 401 "sem sessão"                        GET  /tables
-check 400 "! grep -q 'postgres://|postgresql://' /tmp/mb-body curta"                       POST /signup '{"name":"A","email":"a@b.c","password":"123"}'
+check 400 "senha curta"                       POST /signup '{"name":"A","email":"a@b.c","password":"123"}'
 check 200 "primeira conta"                    POST /signup "{\"name\":\"Dona\",\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"
 check 200 "cadastro fecha depois"             GET  /setup;  has '"signup":false'
 check 403 "segunda conta barrada"             POST /signup "{\"name\":\"Outra\",\"email\":\"outra@smoke.test\",\"password\":\"$PW\"}"
@@ -82,6 +82,8 @@ key 403 "chave leitora não escreve"           POST /tables/clientes/rows '{"val
 key 403 "chave não mexe em estrutura"         POST /schema '{"name":"hack","columns":[]}'
 key 403 "chave não lista pessoas"             GET  /users
 key 403 "chave não faz backup"                POST /backups
+key 403 "chave não vê a chave de backup"      POST /backups/key '{"password":"x"}'
+key 403 "chave não muda o backup automático"  PATCH /backups/settings '{"enabled":false}'
 key 403 "chave não roda SQL"                   POST /sql '{"sql":"SELECT 1"}'
 KEY="mb_000000000000000000000000000000000000000000000000"
 key 401 "chave inventada"                     GET  /tables
@@ -101,15 +103,25 @@ check 200 "importar 2 linhas"                 POST /tables/fornecedores/import '
 check 400 "importar coluna que não existe"    POST /tables/fornecedores/import '{"columns":["xyz"],"rows":[["a"]]}'
 
 # ---- backups ----
+check 200 "configuração do backup"            GET  /backups/settings; has '"enabled":true'; has '"encrypted":true'; has '"key_saved":false'
 check 200 "criar backup"                      POST /backups; has 'backup-'
-BK=$(grep -o 'backup-[0-9-]*[.]dump' /tmp/mb-body | head -1)
+BK=$(grep -o 'backup-[0-9-]*[.]dump[.]age' /tmp/mb-body | head -1)
+[ -n "$BK" ] || { echo "FALHA backup saiu sem criptografia: $(cat /tmp/mb-body)"; fails=$((fails+1)); }
 check 200 "listar backups"                    GET  /backups; has "$BK"
 check 200 "baixar backup"                     GET  "/backups/$BK"
+head -c 21 /tmp/mb-body | grep -q 'age-encryption.org/v1' || { echo "FALHA backup baixado não está criptografado"; fails=$((fails+1)); }
+! grep -qa 'clientes' /tmp/mb-body || { echo "FALHA nome de tabela legível no backup"; fails=$((fails+1)); }
 check 404 "baixar caminho malicioso"          GET  '/backups/..%2F..%2Fetc%2Fpasswd'
 check 200 "apagar linhas depois do backup"    DELETE /tables/produtos/rows '{"pks":[1,2]}'
 check 400 "restaurar sem confirmar"           POST "/backups/$BK/restore" '{"confirm":"x"}'
 check 200 "restaurar"                         POST "/backups/$BK/restore" '{"confirm":"restaurar"}'
 check 200 "linhas voltaram"                   GET  '/tables/produtos?col=id&val=1'; has '"total":1'
+check 200 "guardou o estado antes"            GET  /backups; has '"kind":"antes"'
+check 400 "chave com senha errada"            POST /backups/key '{"password":"errada"}'
+check 200 "ver chave com a senha"             POST /backups/key "{\"password\":\"$PW\"}"; has 'AGE-SECRET-KEY-1'
+check 200 "mudar horário e desligar"          PATCH /backups/settings '{"minute":90,"enabled":false,"key_saved":true}'; has '"minute":90'; has '"key_saved":true'; has '"next":null'
+check 400 "horário inválido"                  PATCH /backups/settings '{"minute":1440}'
+check 200 "religar"                           PATCH /backups/settings '{"enabled":true}'; has '"enabled":true'
 check 200 "apagar backup"                     DELETE "/backups/$BK"
 
 # ---- editor SQL e configurações ----

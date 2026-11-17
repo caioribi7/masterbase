@@ -34,7 +34,7 @@ O Masterbase fica na frente de um banco Postgres comum. Você cria tabelas, liga
 | **Editor SQL** | Para quem sabe SQL: escrever e rodar comandos direto no Postgres. Só administradores. |
 | **Acesso** | Três papéis: administrador, editor e leitor. |
 | **API e chaves** | Chave para um site ou sistema ler e gravar nas tabelas. |
-| **Backups** | Fazer, baixar e restaurar cópias das tabelas. |
+| **Backups** | Backup automático todo dia, criptografado, com limpeza dos antigos. Baixar, restaurar e recuperar em outra máquina. |
 | **Atividade** | Registro de quem mudou o quê e quando. |
 | **Configurações** | Seu nome e senha, como o servidor está rodando e o endereço da documentação para IA. |
 
@@ -79,6 +79,8 @@ O passo a passo completo está em [instalação](docs/instalacao.md).
 | `masterbase` | Abre o painel. Na primeira vez sem instalador, pergunta a configuração. |
 | `masterbase configurar` | Muda banco, porta e quem pode acessar. |
 | `masterbase servico` | Deixa rodando sozinho (Linux com systemd). |
+| `masterbase chave-backup` | Mostra a chave que abre os backups. Guarde fora do servidor. |
+| `masterbase recuperar ARQUIVO` | Restaura um backup no banco configurado, também num servidor novo. |
 | `masterbase versao` | Mostra a versão. |
 
 Enquanto roda, o terminal mostra uma linha por pedido e por mudança (quem fez, o quê, comandos do editor SQL). Dá para deixar o servidor parado num canto, usar pela rede e acompanhar tudo por ali.
@@ -124,7 +126,7 @@ cd web && npm ci && npm run build                       # a tela vai para web/di
 cd server && DATABASE_URL=postgresql://... cargo run    # compila com a tela dentro
 cd server && cargo test                                 # testes do servidor
 cd web && npm run dev                                   # tela com recarga ao vivo em localhost:5173
-bash dev/smoke.sh                                       # 108 checagens na API (banco novo com dev/seed.sql)
+bash dev/smoke.sh                                       # 116 checagens na API (banco novo com dev/seed.sql)
 ```
 
 Para publicar uma versão: `git tag v0.2.0 && git push origin v0.2.0`. O GitHub compila para Linux e macOS e publica em Releases, de onde o instalador baixa.

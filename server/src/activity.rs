@@ -24,6 +24,19 @@ pub async fn log(db: &PgPool, user_id: i64, action: &str, detail: Value) -> ApiR
     Ok(())
 }
 
+/// Registro feito pelo próprio Masterbase (backup automático): sem usuário.
+pub async fn log_system(db: &PgPool, action: &str, detail: Value) -> ApiResult<()> {
+    sqlx::query("INSERT INTO masterbase.activity (user_id, action, detail) VALUES (NULL, $1, $2)")
+        .bind(action)
+        .bind(&detail)
+        .execute(db)
+        .await?;
+    if logging() {
+        println!("{} sistema {action} {detail}", clock());
+    }
+    Ok(())
+}
+
 /// Log no terminal: liga por padrão, MB_LOG=off desliga.
 pub fn logging() -> bool {
     std::env::var("MB_LOG").as_deref() != Ok("off")
