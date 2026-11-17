@@ -3,7 +3,7 @@ use crate::error::{bad, ApiError, ApiResult, UNAUTHORIZED};
 use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
 use axum::extract::{FromRequestParts, State};
-use axum::http::{request::Parts, StatusCode};
+use axum::http::{header, request::Parts, StatusCode};
 use axum::Json;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use rand::RngCore;
@@ -17,25 +17,74 @@ use std::time::{Duration, Instant};
 
 const COOKIE: &str = "mb_session";
 
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
+pub enum Role {
+    Leitor,
+    Editor,
+    Admin,
+}
+
+impl Role {
+    pub fn parse(s: &str) -> Option<Role> {
+        Some(match s {
+            "leitor" => Role::Leitor,
+            "editor" => Role::Editor,
+            "admin" => Role::Admin,
+            _ => return None,
+        })
+    }
+}
+
 pub struct User {
     pub id: i64,
+    pub role: Role,
+    /// Entrou com chave de API (Authorization: Bearer). Chave nunca administra.
+    pub via_key: bool,
+}
+
+impl User {
+    pub fn editor(&self) -> ApiResult<()> {
+        if self.role >= Role::Editor { Ok(()) } else { Err(ApiError(StatusCode::FORBIDDEN, "Seu acesso é só de leitura.")) }
+    }
+
+    pub fn admin(&self) -> ApiResult<()> {
+        if self.role == Role::Admin && !self.via_key { Ok(()) } else { Err(ApiError(StatusCode::FORBIDDEN, "Só quem administra pode fazer isso.")) }
+    }
+}
+
+pub fn sha(raw: &[u8]) -> Vec<u8> {
+    Sha256::digest(raw).to_vec()
 }
 
 impl FromRequestParts<PgPool> for User {
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, db: &PgPool) -> Result<Self, ApiError> {
-        let jar = CookieJar::from_headers(&parts.headers);
-        let token = jar.get(COOKIE).ok_or(UNAUTHORIZED)?;
-        let raw = hex::decode(token.value()).map_err(|_| UNAUTHORIZED)?;
-        let id: i64 = sqlx::query_scalar(
-            "SELECT user_id FROM masterbase.sessions WHERE token_hash = $1 AND expires_at > now()",
-        )
-        .bind(Sha256::digest(&raw).to_vec())
-        .fetch_optional(db)
-        .await?
-        .ok_or(UNAUTHORIZED)?;
-        Ok(User { id })
+        let bearer = parts.headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "));
+        let (row, via_key): (Option<(i64, String)>, bool) = if let Some(key) = bearer {
+            let row = sqlx::query_as(
+                "UPDATE masterbase.api_keys k SET last_used_at = now() FROM masterbase.users u
+                 WHERE k.token_hash = $1 AND u.id = k.user_id AND u.active RETURNING u.id, k.role",
+            )
+            .bind(sha(key.as_bytes()))
+            .fetch_optional(db)
+            .await?;
+            (row, true)
+        } else {
+            let jar = CookieJar::from_headers(&parts.headers);
+            let token = jar.get(COOKIE).ok_or(UNAUTHORIZED)?;
+            let raw = hex::decode(token.value()).map_err(|_| UNAUTHORIZED)?;
+            let row = sqlx::query_as(
+                "SELECT u.id, u.role FROM masterbase.sessions s JOIN masterbase.users u ON u.id = s.user_id
+                 WHERE s.token_hash = $1 AND s.expires_at > now() AND u.active",
+            )
+            .bind(sha(&raw))
+            .fetch_optional(db)
+            .await?;
+            (row, false)
+        };
+        let (id, role) = row.ok_or(UNAUTHORIZED)?;
+        Ok(User { id, role: Role::parse(&role).ok_or(UNAUTHORIZED)?, via_key })
     }
 }
 
@@ -117,7 +166,7 @@ pub async fn login(State(db): State<PgPool>, jar: CookieJar, Json(b): Json<Login
         return Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "Muitas tentativas. Espere 15 minutos."));
     }
     let row: Option<(i64, String)> =
-        sqlx::query_as("SELECT id, password_hash FROM masterbase.users WHERE email = $1")
+        sqlx::query_as("SELECT id, password_hash FROM masterbase.users WHERE email = $1 AND active")
             .bind(&email)
             .fetch_optional(&db)
             .await?;
@@ -138,7 +187,7 @@ pub async fn login(State(db): State<PgPool>, jar: CookieJar, Json(b): Json<Login
 pub async fn logout(State(db): State<PgPool>, jar: CookieJar) -> ApiResult<CookieJar> {
     if let Some(raw) = jar.get(COOKIE).and_then(|c| hex::decode(c.value()).ok()) {
         sqlx::query("DELETE FROM masterbase.sessions WHERE token_hash = $1")
-            .bind(Sha256::digest(&raw).to_vec())
+            .bind(sha(&raw))
             .execute(&db)
             .await?;
     }
@@ -146,15 +195,17 @@ pub async fn logout(State(db): State<PgPool>, jar: CookieJar) -> ApiResult<Cooki
 }
 
 pub async fn me(user: User, State(db): State<PgPool>) -> ApiResult<Json<Value>> {
-    let (name, email): (String, String) =
-        sqlx::query_as("SELECT name, email FROM masterbase.users WHERE id = $1")
-            .bind(user.id)
-            .fetch_one(&db)
-            .await?;
-    Ok(Json(json!({ "name": name, "email": email })))
+    let (name, email, role, project, pg): (String, String, String, String, String) = sqlx::query_as(
+        "SELECT name, email, role, current_database()::text, current_setting('server_version') FROM masterbase.users WHERE id = $1",
+    )
+    .bind(user.id)
+    .fetch_one(&db)
+    .await?;
+    let role = if user.via_key && role == "admin" { "editor".to_owned() } else { role };
+    Ok(Json(json!({ "name": name, "email": email, "role": role, "project": project, "postgres": pg })))
 }
 
-fn hash_password(password: &str) -> ApiResult<String> {
+pub fn hash_password(password: &str) -> ApiResult<String> {
     Argon2::default()
         .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
         .map(|h| h.to_string())
@@ -171,7 +222,7 @@ async fn start_session(db: &PgPool, jar: CookieJar, user_id: i64) -> ApiResult<(
     OsRng.fill_bytes(&mut raw);
     sqlx::query("DELETE FROM masterbase.sessions WHERE expires_at < now()").execute(db).await?;
     sqlx::query("INSERT INTO masterbase.sessions (token_hash, user_id, expires_at) VALUES ($1, $2, now() + interval '7 days')")
-        .bind(Sha256::digest(raw).to_vec())
+        .bind(sha(&raw))
         .bind(user_id)
         .execute(db)
         .await?;

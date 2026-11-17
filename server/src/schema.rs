@@ -71,6 +71,7 @@ pub struct NewTable {
 }
 
 pub async fn create_table(user: User, State(db): State<PgPool>, Json(b): Json<NewTable>) -> ApiResult<Json<Value>> {
+    user.admin()?;
     let name = valid_name(&b.name)?;
     if b.columns.len() > 100 {
         return Err(bad("Máximo de 100 colunas."));
@@ -91,6 +92,7 @@ pub struct Rename {
 }
 
 pub async fn rename_table(user: User, State(db): State<PgPool>, Path(table): Path<String>, Json(b): Json<Rename>) -> ApiResult<Json<Value>> {
+    user.admin()?;
     columns(&db, Some(&table)).await?;
     let to = valid_name(&b.name)?;
     ddl(&db, &format!("ALTER TABLE public.{} RENAME TO {}", ident(&table), ident(&to))).await?;
@@ -104,6 +106,7 @@ pub struct Confirm {
 }
 
 pub async fn drop_table(user: User, State(db): State<PgPool>, Path(table): Path<String>, Json(b): Json<Confirm>) -> ApiResult<Json<Value>> {
+    user.admin()?;
     columns(&db, Some(&table)).await?;
     if b.confirm != table {
         return Err(bad("Digite o nome da tabela para confirmar."));
@@ -115,6 +118,7 @@ pub async fn drop_table(user: User, State(db): State<PgPool>, Path(table): Path<
 }
 
 pub async fn add_column(user: User, State(db): State<PgPool>, Path(table): Path<String>, Json(c): Json<NewCol>) -> ApiResult<Json<Value>> {
+    user.admin()?;
     columns(&db, Some(&table)).await?;
     let (name, sql) = col_sql(&db, &c).await?;
     ddl(&db, &format!("ALTER TABLE public.{} ADD COLUMN {sql}", ident(&table))).await?;
@@ -142,6 +146,7 @@ pub async fn change_column(
     Path((table, column)): Path<(String, String)>,
     Json(b): Json<ColChange>,
 ) -> ApiResult<Json<Value>> {
+    user.admin()?;
     let cols = columns(&db, Some(&table)).await?;
     let col = editable(&cols, &column)?;
     let t = ident(&table);
@@ -170,6 +175,7 @@ pub async fn change_column(
 }
 
 pub async fn drop_column(user: User, State(db): State<PgPool>, Path((table, column)): Path<(String, String)>) -> ApiResult<Json<Value>> {
+    user.admin()?;
     let cols = columns(&db, Some(&table)).await?;
     let col = editable(&cols, &column)?;
     ddl(&db, &format!("ALTER TABLE public.{} DROP COLUMN {}", ident(&table), ident(&col.name))).await?;

@@ -1,10 +1,10 @@
 # Masterbase MVP
 
-Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas e edita dados. Rust no servidor, Svelte na tela.
+Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta e edita dados. Rust no servidor, Svelte na tela.
 
 ## Temos
 
-**Páginas prontas**
+**Páginas (todas do menu funcionam)**
 - **Login.** Sem nenhuma conta, abre no cadastro. A primeira conta administra. Depois disso, cadastro fecha.
 - **Início.** Tabelas, linhas, tamanho do banco, versão do Postgres. Barra por tabela. Últimas alterações.
 - **Tabelas.** Grade tipo planilha:
@@ -13,65 +13,83 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas e edita d
   - duplo clique edita a célula;
   - nova linha;
   - marcar várias linhas e apagar, com confirmação;
+  - importar CSV (primeira linha = nomes das colunas; até 5.000 linhas; entra tudo ou nada);
   - exportar CSV;
   - paginação de 12 em 12.
 - **Estrutura.** Sem SQL:
   - criar tabela (coluna `id` vem sozinha);
   - criar, renomear e apagar colunas;
   - marcar obrigatório ou "sem repetidos";
-  - **ligação com outra tabela** (chave estrangeira);
+  - ligação com outra tabela (chave estrangeira);
   - renomear tabela;
   - apagar tabela digitando o nome.
+- **Relações.** Diagrama das tabelas e das ligações. Passar o mouse acende as linhas. Clique abre a Estrutura.
+- **Consultas.** Construtor visual:
+  - escolher tabela e colunas;
+  - condições: é, não é, contém, maior que, menor que, vazio, não vazio;
+  - ordem e limite (até 500 linhas);
+  - "Ver SQL" mostra o SELECT gerado;
+  - salvar consulta e abrir de novo.
+- **Acesso.** Pessoas e papéis:
+  - administra: tudo;
+  - editor: muda linhas, não mexe na estrutura;
+  - leitor: só vê e consulta;
+  - criar pessoa, mudar papel, dar senha nova, desativar e reativar;
+  - cada um troca a própria senha.
+- **API e chaves.** Chave para site ou sistema usar as tabelas:
+  - "só ler" ou "ler e editar linhas";
+  - aparece inteira uma vez só; o banco guarda o hash;
+  - revogar;
+  - exemplos prontos em curl e JavaScript.
+- **Backups.** Fazer backup agora, baixar, apagar, restaurar (digitando "restaurar"). Antes de restaurar, guarda um backup do estado atual.
 - **Atividade.** Quem mudou o quê e quando. Agrupado por dia. Filtro por tabela. Carregar mais.
-- Relações, Consultas, Acesso, API e chaves, Backups: aparecem apagados no menu.
 
 **Tipos em palavra simples**
 - texto, número, decimal, sim/não, data, data e hora, dados (jsonb), id único (uuid), ligação.
 - Tipos do seed também: opção (enum), e-mail (domain).
 
 **Segurança**
-- Senha em argon2id. Sessão em cookie httpOnly, Secure, SameSite=Strict. Banco guarda só o hash do token. Expira em 7 dias. Sessões vencidas são limpas no login.
+- Senha em argon2id. Sessão em cookie httpOnly, Secure, SameSite=Strict. Banco guarda só o hash do token. Expira em 7 dias.
 - Login sem usuário gasta o mesmo tempo. Não revela e-mail.
 - 5 senhas erradas no mesmo e-mail: bloqueio de 15 min (429).
-- Cadastro só para a primeira conta, com trava na tabela contra corrida.
-- Nome de tabela e coluna existente: conferido no catálogo. Nome novo: validado e sempre entre aspas. Tipo: lista fixa. Valor: sempre parametrizado.
+- Cadastro só para a primeira conta, com trava contra corrida.
+- Papel conferido no servidor em toda rota que escreve. A tela só esconde botão.
+- Ninguém muda o próprio papel nem se desativa (não tem como se trancar para fora).
+- Trocar ou redefinir senha, ou desativar conta, encerra as sessões da pessoa.
+- Chave de API nunca administra: não mexe em estrutura, pessoas, chaves nem backups.
+- Nome de tabela e coluna existente: conferido no catálogo. Nome novo: validado e sempre entre aspas. Tipo e operador: lista fixa. Valor: sempre parametrizado.
+- Consultas: não existe SQL livre. O servidor monta o SELECT.
+- Backup: nome de arquivo só no formato que o servidor gera (nada de `../`). Senha do banco vai por variável de ambiente, não aparece na lista de processos. Restaurar roda em uma transação.
 - Apagar tabela sem CASCADE. Se outra tabela liga nela, o Postgres recusa e a tela explica.
-- Erro do Postgres vira frase clara (coluna repetida, ligação inválida, obrigatório vazio...). Resto vira 500 e vai pro log.
-- Consulta com mais de 15 s é cancelada. Corpo de requisição até 256 KB.
-- CSP `self` (fontes inclusas, sem data:), nosniff, no-referrer, sem iframe. `unsafe` proibido no crate.
+- Erro do Postgres vira frase clara. Resto vira 500 e vai pro log.
+- Consulta com mais de 15 s é cancelada. Corpo de requisição até 256 KB (8 MB na importação).
+- CSP `self`, nosniff, no-referrer, sem iframe. `unsafe` proibido no crate.
 - Metadados no schema `masterbase`. A tela só vê `public`.
 
 **Código**
-- `server/src/`: `main` (rotas), `auth`, `data` (linhas), `schema` (estrutura), `activity` (auditoria e início), `catalog` (nomes e tipos), `error`.
-- `web/src/`: `Shell` (menu), `Home`, `Tables`, `Structure`, `Activity`, `Login`, `Modal`, `Icon`, `lib.js` (rotas por hash, ícones, frases).
-- Tela: 90 KB de JS (31 KB gzip). Fontes locais.
+- `server/src/`: `main` (rotas), `auth` (login, sessão, papéis), `access` (pessoas e chaves), `data` (linhas, importar), `schema` (estrutura), `query` (consultas), `backup`, `activity` (auditoria e início), `catalog` (nomes e tipos), `error`.
+- `web/src/`: `Shell` (menu), uma página por arquivo (`Home`, `Tables`, `Structure`, `Relations`, `Queries`, `Access`, `Keys`, `Backups`, `Activity`, `Login`), `Modal`, `Icon`, `lib.js`, `session.svelte.js`.
 
 **Testes**
-- `cargo test`: 5 testes (aspas, rótulos, tipos, nomes, bloqueio de login).
-- `dev/wsl.sh smoke`: 40 checagens de ponta a ponta na API, num banco separado (`masterbase_smoke`, porta 8081).
-- Navegador (1440 e 1000 px):
-  - Início;
-  - criar tabela com ligação;
-  - nova linha ligada;
-  - ordenar;
-  - marcar e apagar;
-  - Atividade.
+- `cargo test`: 9 testes (aspas, rótulos, tipos, nomes, bloqueio de login, SELECT das consultas, nome de backup, leitura da URL do banco).
+- `dev/wsl.sh smoke`: 83 checagens de ponta a ponta na API, num banco separado (`masterbase_smoke`, porta 8081). Cobre papéis, chaves, consultas, importar e restaurar backup.
+- Navegador (1440 px): todas as páginas abertas; criar tabela com ligação, nova linha, ordenar, apagar, rodar consulta, fazer backup.
 
 ## Falta
 
-**Próximo**
-- Página Relações: diagrama das ligações.
-- Página Consultas: "mostrar X onde Y" + aba SQL.
-- Acesso: convidar pessoas e definir papéis. Hoje só existe a primeira conta.
-- Valor padrão na coluna (ex.: "agora" em data e hora).
-- Importar CSV.
+- Aba SQL livre nas Consultas. Precisa de um usuário do Postgres só de leitura e restrito a `public`; com o dono do banco seria possível ler as senhas.
+- Regras por linha ("vendedor só vê os próprios pedidos"). Hoje o papel vale para o banco inteiro.
+- Backup automático (agendado) e backup fora do servidor.
+- Convite por e-mail, link mágico e passkey. Precisam de SMTP/WebAuthn. Hoje quem administra cria a pessoa e passa a senha.
+- "Meu servidor" no login: só visual. Falta conectar em Postgres externo e ter vários projetos.
+- Valor padrão na coluna (ex.: "agora" em data e hora). Mudar tipo de coluna existente.
+- Arrastar para ligar tabelas no diagrama. Hoje a ligação nasce na Estrutura.
+- Gráfico rápido do resultado da consulta.
 - Limite de login por IP e persistente.
-- "Meu servidor": hoje é só visual. Falta conectar em Postgres externo.
-- Link por e-mail e chave de acesso (passkey): botões desativados.
 - TLS no sqlx para banco remoto. Cookie Secure exige HTTPS fora do localhost.
 - Binário único com a tela embutida. Imagem Docker.
 - Usuário do Postgres com permissão mínima. Hoje usa o dono do banco.
-- Contagem com `count(*)`. Lenta acima de ~1M linhas.
+- Contagem com `count(*)`: lenta acima de ~1M linhas. Download de backup carrega o arquivo na memória.
 - Tela de celular (abaixo de ~700 px).
 
 ## Rodar
@@ -90,5 +108,7 @@ bash dev/wsl.sh run     # servidor em 127.0.0.1:8080
 bash dev/wsl.sh smoke   # teste de ponta a ponta
 ```
 Abre `http://127.0.0.1:8080`. Banco novo abre no cadastro da primeira conta.
+
+Backups ficam em `MB_BACKUP_DIR` (no dev: `.dev/backups`). O servidor precisa ter `pg_dump` e `pg_restore`.
 
 Tela com recarga ao vivo: `cd web && npm run dev`, abre `http://localhost:5173`.

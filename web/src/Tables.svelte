@@ -1,7 +1,8 @@
 <script>
   import { untrack } from 'svelte';
   import { api } from './api.js';
-  import { href, n } from './lib.js';
+  import { href, n, parseCsv } from './lib.js';
+  import { canEdit } from './session.svelte.js';
   import Glyph from './Glyph.svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
@@ -92,7 +93,7 @@
   }
 
   function startEdit(i, col) {
-    if (col.pk || !pk) return;
+    if (col.pk || !pk || !canEdit()) return;
     const v = data.rows[i][col.name];
     editing = { rowIndex: i, col: col.name, value: v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v) };
   }
@@ -140,6 +141,30 @@
     }
   }
 
+  let fileInput = $state(null);
+  let notice = $state('');
+
+  // Primeira linha do arquivo = nomes das colunas da tabela.
+  async function importCsv(e) {
+    const file = e.currentTarget.files[0];
+    e.currentTarget.value = '';
+    if (!file) return;
+    error = '';
+    notice = '';
+    const [header, ...rows] = parseCsv(await file.text());
+    if (!header || !rows.length) return (error = 'O arquivo está vazio ou só tem o cabeçalho.');
+    try {
+      const r = await api(`/tables/${encodeURIComponent(current)}/import`, {
+        method: 'POST',
+        body: { columns: header.map((h) => h.trim()), rows: rows.map((r) => header.map((_, i) => r[i] ?? '')) },
+      });
+      notice = `${n(r.imported)} ${r.imported === 1 ? 'linha importada' : 'linhas importadas'}.`;
+      await Promise.all([load(), loadTables()]);
+    } catch (err) {
+      fail(err);
+    }
+  }
+
   function exportCsv() {
     const cols = data.columns.map((c) => c.name);
     const cell = (v) => `"${String(v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : v).replaceAll('"', '""')}"`;
@@ -183,12 +208,16 @@
     <div class="page-head">
       <h1 class="brand">{current}</h1>
       <div class="actions">
-        {#if selected.size}
+        {#if selected.size && canEdit()}
           <button class="glass btn btn-danger" onclick={() => (confirmDelete = true)}><Icon name="trash" size={15} /> Apagar {selected.size}</button>
         {/if}
         <a class="glass btn" href={href('estrutura', current)}><Icon name="Estrutura" size={15} stroke="#C9CCEB" /> Estrutura</a>
         <button class="glass btn" onclick={exportCsv}><Icon name="download" size={15} stroke="#C9CCEB" /> Exportar</button>
-        {#if pk}
+        {#if canEdit()}
+          <button class="glass btn" onclick={() => fileInput.click()}><Icon name="upload" size={15} stroke="#C9CCEB" /> Importar</button>
+          <input type="file" accept=".csv,text/csv" hidden bind:this={fileInput} onchange={importCsv} />
+        {/if}
+        {#if pk && canEdit()}
           <button class="btn-primary" onclick={() => (adding = Object.fromEntries(data.columns.filter((c) => !c.pk).map((c) => [c.name, ''])))}>
             <Icon name="plus" size={14} stroke="#12133A" weight={2.6} /> Nova linha
           </button>
@@ -228,6 +257,7 @@
       {/if}
       <span class="grow"></span>
       {#if error}<span class="error" role="alert">{error}</span>{/if}
+      {#if notice}<span class="notice" role="status">{notice}</span>{/if}
       <span class="count">{n(data.total)} {data.total === 1 ? 'linha' : 'linhas'}</span>
     </div>
 
@@ -292,7 +322,7 @@
           </table>
         </div>
         <div class="foot">
-          <span>{selected.size ? `${selected.size} ${selected.size === 1 ? 'linha marcada' : 'linhas marcadas'}` : pk ? 'Clique duas vezes numa célula para editar.' : 'Tabela sem chave: só leitura.'}</span>
+          <span>{selected.size ? `${selected.size} ${selected.size === 1 ? 'linha marcada' : 'linhas marcadas'}` : !canEdit() ? 'Seu acesso é só de leitura.' : pk ? 'Clique duas vezes numa célula para editar.' : 'Tabela sem chave: só leitura.'}</span>
           <span class="pager">
             Página {data.page} de {data.pages}
             <button class="glass sq" disabled={page <= 1} aria-label="Página anterior" onclick={() => { page--; load(); }}><Icon name="left" size={14} stroke="#C9CCEB" /></button>
@@ -303,7 +333,7 @@
     </div>
   </section>
 {:else if tables.length === 0}
-  <section class="content"><div class="empty-state"><Glyph size={56} /><p>Nenhuma tabela ainda.</p><a class="btn-primary" href={href('estrutura')}>Criar tabela</a></div></section>
+  <section class="content"><div class="empty-state"><Glyph size={56} /><p>Nenhuma tabela ainda.</p><a class="glass btn" href={href('estrutura')}>Abrir Estrutura</a></div></section>
 {:else if error}
   <section class="content"><p class="error" role="alert">{error}</p></section>
 {/if}
@@ -325,6 +355,7 @@
   .active-filter em { font-style: normal; color: var(--lavender-2); }
   .x { background: none; border: 0; display: grid; place-items: center; padding: 2px; }
   .count { color: var(--lavender-2); }
+  .notice { color: var(--lime); }
   .pop-wrap { position: relative; }
   .pop { position: absolute; top: 42px; left: 0; z-index: 10; padding: 12px; border-radius: 14px; display: flex; align-items: center; gap: 8px; background: linear-gradient(180deg, #1F2259 0%, #15173F 100%); border: 1px solid rgba(154,160,224,.4); box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 20px 40px rgba(4,5,20,.6); }
   .pop .field { width: 150px; }

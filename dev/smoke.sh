@@ -57,6 +57,81 @@ check 200 "atividade"                         GET  /activity; has 'drop_table'
 check 200 "atividade por tabela"              GET  '/activity?table=entregas2'; has 'rename_table'
 check 200 "início"                            GET  /overview; has '"version"'
 
+# ---- papéis, pessoas e chaves ----
+check 200 "me traz papel e projeto"           GET  /me; has '"role":"admin"'
+check 200 "criar editor"                      POST /users "{\"name\":\"Edu\",\"email\":\"edu@smoke.test\",\"password\":\"$PW\",\"role\":\"editor\"}"
+check 200 "criar leitor"                      POST /users "{\"name\":\"Lia\",\"email\":\"lia@smoke.test\",\"password\":\"$PW\",\"role\":\"leitor\"}"
+check 409 "e-mail repetido"                   POST /users "{\"name\":\"Lia\",\"email\":\"lia@smoke.test\",\"password\":\"$PW\",\"role\":\"leitor\"}"
+check 400 "papel inventado"                   POST /users "{\"name\":\"X\",\"email\":\"x@smoke.test\",\"password\":\"$PW\",\"role\":\"root\"}"
+check 400 "não se rebaixa sozinho"            PATCH /users/1 '{"role":"leitor"}'
+check 200 "listar pessoas"                    GET  /users; has 'lia@smoke.test'
+check 200 "criar chave leitora"               POST /keys '{"name":"site","role":"leitor"}'; has '"token":"mb_'
+KEY=$(grep -o 'mb_[0-9a-f]*' /tmp/mb-body)
+check 400 "chave não pode ser admin"          POST /keys '{"name":"x","role":"admin"}'
+check 200 "lista não mostra a chave inteira"  GET  /keys; ! grep -q "$KEY" /tmp/mb-body || { echo "FALHA chave vazou na lista"; fails=$((fails+1)); }
+
+# com chave (sem cookie)
+key() { # key <status> <descrição> <método> <caminho> [json]
+  local args=(-s -o /tmp/mb-body -w '%{http_code}' -H "Authorization: Bearer $KEY" -X "$3")
+  [ -n "${5:-}" ] && args+=(-H 'content-type: application/json' -d "$5")
+  local got; got=$(curl "${args[@]}" "$BASE$4")
+  if [ "$got" = "$1" ]; then echo "ok   $2"; else echo "FALHA $2: esperado $1, veio $got $(cat /tmp/mb-body)"; fails=$((fails+1)); fi
+}
+key 200 "chave lê tabela"                     GET  /tables/clientes
+key 403 "chave leitora não escreve"           POST /tables/clientes/rows '{"values":{"nome":"x"}}'
+key 403 "chave não mexe em estrutura"         POST /schema '{"name":"hack","columns":[]}'
+key 403 "chave não lista pessoas"             GET  /users
+key 403 "chave não faz backup"                POST /backups
+KEY="mb_000000000000000000000000000000000000000000000000"
+key 401 "chave inventada"                     GET  /tables
+
+# ---- consultas ----
+Q='{"table":"clientes","columns":["nome","cidade"],"filters":[{"col":"plano","op":"é","val":"pro"},{"col":"id","op":"menor que","val":"6"}],"sort":"nome","desc":false,"limit":50}'
+check 200 "rodar consulta"                    POST /query "$Q"; has '"sql":"SELECT'
+check 400 "consulta com operador falso"       POST /query '{"table":"clientes","filters":[{"col":"id","op":"; drop","val":"1"}]}'
+check 400 "consulta com valor de tipo errado" POST /query '{"table":"clientes","filters":[{"col":"id","op":"maior que","val":"abc"}]}'
+check 404 "consulta em metadados"             POST /query '{"table":"users"}'
+check 200 "salvar consulta"                   POST /queries "{\"name\":\"pro\",\"spec\":$Q}"
+check 200 "listar consultas"                  GET  /queries; has '"name":"pro"'
+check 200 "apagar consulta"                   DELETE /queries/1
+
+# ---- importar ----
+check 200 "importar 2 linhas"                 POST /tables/fornecedores/import '{"columns":["nome"],"rows":[["Moinho Sul"],["Laticínios Serra"]]}'; has '"imported":2'
+check 400 "importar coluna que não existe"    POST /tables/fornecedores/import '{"columns":["xyz"],"rows":[["a"]]}'
+
+# ---- backups ----
+check 200 "criar backup"                      POST /backups; has 'backup-'
+BK=$(grep -o 'backup-[0-9-]*[.]dump' /tmp/mb-body | head -1)
+check 200 "listar backups"                    GET  /backups; has "$BK"
+check 200 "baixar backup"                     GET  "/backups/$BK"
+check 404 "baixar caminho malicioso"          GET  '/backups/..%2F..%2Fetc%2Fpasswd'
+check 200 "apagar linhas depois do backup"    DELETE /tables/produtos/rows '{"pks":[1,2]}'
+check 400 "restaurar sem confirmar"           POST "/backups/$BK/restore" '{"confirm":"x"}'
+check 200 "restaurar"                         POST "/backups/$BK/restore" '{"confirm":"restaurar"}'
+check 200 "linhas voltaram"                   GET  '/tables/produtos?col=id&val=1'; has '"total":1'
+check 200 "apagar backup"                     DELETE "/backups/$BK"
+
+# ---- papéis na prática ----
+check 200 "sair (admin)"                      POST /logout
+check 200 "entrar como leitor"                POST /login "{\"email\":\"lia@smoke.test\",\"password\":\"$PW\"}"
+check 200 "leitor lê"                         GET  /tables/clientes
+check 403 "leitor não edita"                  PATCH /tables/clientes/rows '{"pk":1,"column":"cidade","value":"X"}'
+check 403 "leitor não apaga"                  DELETE /tables/clientes/rows '{"pks":[2]}'
+check 403 "leitor não cria tabela"            POST /schema '{"name":"z","columns":[]}'
+check 403 "leitor não vê pessoas"             GET  /users
+check 200 "leitor troca a própria senha"      POST /password "{\"current\":\"$PW\",\"new\":\"${PW}2\"}"
+check 200 "sair (leitor)"                     POST /logout
+check 200 "entrar como editor"                POST /login "{\"email\":\"edu@smoke.test\",\"password\":\"$PW\"}"
+check 200 "editor edita"                      PATCH /tables/clientes/rows '{"pk":1,"column":"cidade","value":"Curitiba"}'
+check 403 "editor não apaga tabela"           DELETE /schema/produtos '{"confirm":"produtos"}'
+check 403 "editor não cria chave"             POST /keys '{"name":"x","role":"leitor"}'
+check 200 "sair (editor)"                     POST /logout
+check 200 "entrar como admin"                 POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"
+check 200 "desativar editor"                  PATCH /users/2 '{"active":false}'
+check 200 "sair (admin) de novo"              POST /logout
+check 401 "desativado não entra"              POST /login "{\"email\":\"edu@smoke.test\",\"password\":\"$PW\"}"
+
+check 200 "entrar de novo como admin" POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"
 check 200 "sair"                              POST /logout
 check 401 "sessão encerrada"                  GET  /me
 check 401 "senha errada"                      POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"errada-errada\"}"

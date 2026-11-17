@@ -7,10 +7,12 @@
   let { user, page, crumb, onLogout, children } = $props();
 
   // Páginas com tela pronta têm rota; as outras aparecem, mas apagadas.
-  const nav = [
-    ['Início', 'inicio'], ['Tabelas', 'tabelas'], ['Estrutura', 'estrutura'], ['Relações'], ['Consultas'],
-    ['Acesso'], ['API e chaves'], ['Backups'], ['Atividade', 'atividade'],
+  const all = [
+    ['Início', 'inicio'], ['Tabelas', 'tabelas'], ['Estrutura', 'estrutura'], ['Relações', 'relacoes'], ['Consultas', 'consultas'],
+    ['Acesso', 'acesso'], ['API e chaves', 'chaves', true], ['Backups', 'backups', true], ['Atividade', 'atividade'],
   ];
+  // Terceiro campo = só para quem administra.
+  const nav = $derived(all.filter(([, , adminOnly]) => !adminOnly || user.role === 'admin'));
   const initials = $derived(user.name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase());
 
   async function logout() {
@@ -24,27 +26,23 @@
     <a class="logo" href={href('inicio')}><Glyph size={26} /><span class="brand">Masterbase</span></a>
 
     <div class="glass project">
-      <span class="avatar-sq brand">PA</span>
-      <span class="grow"><strong>Padaria Aurora</strong><small>Hospedado</small></span>
+      <span class="avatar-sq brand">{user.project.slice(0, 2).toUpperCase()}</span>
+      <span class="grow"><strong>{user.project}</strong><small>Postgres {user.postgres.split(' ')[0]}</small></span>
     </div>
 
     <nav>
       {#each nav as [label, route]}
-        {#if route}
-          <a class="nav-item" class:active={page === route} aria-current={page === route ? 'page' : undefined} href={href(route)}>
-            <Icon name={label} size={18} weight={1.8} />
-            <span>{label}</span>
-          </a>
-        {:else}
-          <span class="nav-item soon" title="Em breve"><Icon name={label} size={18} weight={1.8} /><span>{label}</span></span>
-        {/if}
+        <a class="nav-item" class:active={page === route} aria-current={page === route ? 'page' : undefined} href={href(route)}>
+          <Icon name={label} size={18} weight={1.8} />
+          <span>{label}</span>
+        </a>
       {/each}
     </nav>
 
     <div class="grow"></div>
     <div class="me">
       <span class="avatar">{initials}</span>
-      <span class="grow"><strong>{user.name}</strong><small>{user.email}</small></span>
+      <span class="grow"><strong>{user.name}</strong><small>{user.role === 'admin' ? 'administra' : user.role}</small></span>
       <button class="icon-btn" onclick={logout} title="Sair" aria-label="Sair"><Icon name="logout" /></button>
     </div>
   </aside>
@@ -75,7 +73,6 @@
   .nav-item { position: relative; height: 38px; flex-shrink: 0; padding: 0 12px; border-radius: 10px; border: 1px solid transparent; display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--lavender); text-decoration: none; transition: background .18s ease-out, border-color .18s ease-out; }
   a.nav-item:hover:not(.active) { background: rgba(154,160,224,.06); border-color: rgba(154,160,224,.12); }
   .nav-item :global(svg) { stroke: var(--lavender-2); }
-  .nav-item.soon { opacity: .45; cursor: default; }
   .nav-item.active { background: linear-gradient(180deg, #23266A 0%, #191B4E 100%); border-color: rgba(154,160,224,.32); box-shadow: inset 0 1px 0 rgba(255,255,255,.12); color: var(--text); font-weight: 600; }
   .nav-item.active :global(svg) { stroke: var(--lime); }
   .nav-item.active::before { content: ''; position: absolute; left: -9px; top: 10px; width: 3px; height: 16px; border-radius: 2px; background: var(--lime); }

@@ -3,6 +3,7 @@
   import { ago, go, href, intent, n, phrase } from './lib.js';
   import Glyph from './Glyph.svelte';
   import Icon from './Icon.svelte';
+  import { session, isAdmin } from './session.svelte.js';
 
   let { onAuthLost } = $props();
   let o = $state(null);
@@ -23,12 +24,12 @@
 <section class="content">
   <div class="page-head">
     <div>
-      <h1 class="brand">Padaria Aurora</h1>
+      <h1 class="brand">{session.user.project}</h1>
       <p>Como o banco está agora e o que mudou por último.</p>
     </div>
     <div class="actions">
       <a class="glass btn" href={href('tabelas')}><Icon name="grid" size={15} stroke="#C9CCEB" /> Abrir tabelas</a>
-      <button class="btn-primary" onclick={createTable}><Icon name="plus" size={14} stroke="#12133A" weight={2.6} /> Criar tabela</button>
+      {#if isAdmin()}<button class="btn-primary" onclick={createTable}><Icon name="plus" size={14} stroke="#12133A" weight={2.6} /> Criar tabela</button>{/if}
     </div>
   </div>
 

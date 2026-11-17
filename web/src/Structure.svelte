@@ -4,6 +4,7 @@
   import Glyph from './Glyph.svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
+  import { isAdmin } from './session.svelte.js';
 
   let { arg, onAuthLost, onOpen } = $props();
 
@@ -128,7 +129,7 @@
   {#each others as name}
     <a class="list-item" class:active={name === current?.name} href={href('estrutura', name)}><span>{name}</span></a>
   {/each}
-  <button class="list-item add" onclick={openCreate}><Icon name="plus" size={14} /> Nova tabela</button>
+  {#if isAdmin()}<button class="list-item add" onclick={openCreate}><Icon name="plus" size={14} /> Nova tabela</button>{/if}
 </div>
 
 <section class="content">
@@ -140,9 +141,11 @@
       </div>
       <div class="actions">
         <a class="glass btn" href={href('tabelas', current.name)}><Icon name="grid" size={15} stroke="#C9CCEB" /> Ver dados</a>
+        {#if isAdmin()}
         <button class="glass btn" onclick={() => { renameTo = current.name; modal = 'rename'; }}><Icon name="pencil" size={15} stroke="#C9CCEB" /> Renomear</button>
         <button class="glass btn btn-danger" onclick={() => { dropConfirm = ''; modal = 'drop'; }}><Icon name="trash" size={15} /> Apagar tabela</button>
         <button class="btn-primary" onclick={() => { newCol = blankCol(); modal = 'column'; }}><Icon name="plus" size={14} stroke="#12133A" weight={2.6} /> Nova coluna</button>
+        {/if}
       </div>
     </div>
 
@@ -160,7 +163,7 @@
               </form>
             {:else}
               <strong>{c.name}</strong>
-              {#if !c.pk}<button class="icon-btn" title="Renomear" aria-label="Renomear {c.name}" onclick={() => (editingCol = { from: c.name, name: c.name })}><Icon name="pencil" size={14} /></button>{/if}
+              {#if !c.pk && isAdmin()}<button class="icon-btn" title="Renomear" aria-label="Renomear {c.name}" onclick={() => (editingCol = { from: c.name, name: c.name })}><Icon name="pencil" size={14} /></button>{/if}
             {/if}
           </span>
           <span>
@@ -171,12 +174,12 @@
             {#if c.pk}
               <span class="badge lime"><Icon name="key" size={12} /> chave automática</span>
             {:else}
-              <label class="check-label"><input type="checkbox" checked={c.required} onchange={() => setRequired(c)} /> obrigatório</label>
+              <label class="check-label"><input type="checkbox" checked={c.required} disabled={!isAdmin()} onchange={() => setRequired(c)} /> obrigatório</label>
               {#if c.unique}<span class="badge">sem repetidos</span>{/if}
             {/if}
           </span>
           <span class="end">
-            {#if !c.pk}<button class="icon-btn danger" title="Apagar coluna" aria-label="Apagar {c.name}" onclick={() => { dropCol = c; modal = 'dropcol'; }}><Icon name="trash" size={15} /></button>{/if}
+            {#if !c.pk && isAdmin()}<button class="icon-btn danger" title="Apagar coluna" aria-label="Apagar {c.name}" onclick={() => { dropCol = c; modal = 'dropcol'; }}><Icon name="trash" size={15} /></button>{/if}
           </span>
         </div>
       {/each}
@@ -185,7 +188,7 @@
     <div class="empty-state">
       <Glyph size={56} />
       <p>Nenhuma tabela ainda. Crie a primeira e as colunas que ela precisa.</p>
-      <button class="btn-primary" onclick={openCreate}><Icon name="plus" size={14} stroke="#12133A" weight={2.6} /> Criar tabela</button>
+      {#if isAdmin()}<button class="btn-primary" onclick={openCreate}><Icon name="plus" size={14} stroke="#12133A" weight={2.6} /> Criar tabela</button>{/if}
     </div>
   {:else if error}
     <p class="error" role="alert">{error}</p>

@@ -97,6 +97,7 @@ pub struct UpdateBody {
 }
 
 pub async fn update_cell(user: User, State(db): State<PgPool>, Path(table): Path<String>, Json(b): Json<UpdateBody>) -> ApiResult<Json<Value>> {
+    user.editor()?;
     let cols = columns(&db, Some(&table)).await?;
     let pk = pk_of(&cols)?;
     let col = find(&cols, &b.column)?;
@@ -125,6 +126,7 @@ pub struct InsertBody {
 }
 
 pub async fn insert_row(user: User, State(db): State<PgPool>, Path(table): Path<String>, Json(b): Json<InsertBody>) -> ApiResult<Json<Value>> {
+    user.editor()?;
     let cols = columns(&db, Some(&table)).await?;
     let mut names = Vec::new();
     let mut casts = Vec::new();
@@ -158,6 +160,7 @@ pub struct DeleteBody {
 }
 
 pub async fn delete_rows(user: User, State(db): State<PgPool>, Path(table): Path<String>, Json(b): Json<DeleteBody>) -> ApiResult<Json<Value>> {
+    user.editor()?;
     if b.pks.is_empty() || b.pks.len() > 500 {
         return Err(bad("Escolha de 1 a 500 linhas."));
     }
@@ -168,4 +171,41 @@ pub async fn delete_rows(user: User, State(db): State<PgPool>, Path(table): Path
     let n = sqlx::query(&sql).bind(&keys).execute(&db).await?.rows_affected();
     log(&db, user.id, "delete", json!({ "table": table, "rows": n })).await?;
     Ok(Json(json!({ "deleted": n })))
+}
+
+#[derive(Deserialize)]
+pub struct ImportBody {
+    columns: Vec<String>,
+    rows: Vec<Vec<Option<String>>>,
+}
+
+/// Importar CSV: a tela lê o arquivo e manda as linhas. Uma transação: ou entra tudo, ou nada.
+pub async fn import_rows(user: User, State(db): State<PgPool>, Path(table): Path<String>, Json(b): Json<ImportBody>) -> ApiResult<Json<Value>> {
+    user.editor()?;
+    if b.columns.is_empty() || b.rows.is_empty() || b.rows.len() > 5000 {
+        return Err(bad("Envie de 1 a 5.000 linhas por vez."));
+    }
+    let cols = columns(&db, Some(&table)).await?;
+    let mut names = Vec::new();
+    let mut casts = Vec::new();
+    for (i, key) in b.columns.iter().enumerate() {
+        let col = cols.iter().find(|c| &c.name == key).ok_or(bad("O arquivo tem uma coluna que a tabela não tem."))?;
+        names.push(ident(&col.name));
+        casts.push(format!("CAST(${} AS {})", i + 1, col.ty));
+    }
+    let sql = format!("INSERT INTO public.{} ({}) VALUES ({})", ident(&table), names.join(", "), casts.join(", "));
+    let mut tx = db.begin().await?;
+    for row in &b.rows {
+        if row.len() != b.columns.len() {
+            return Err(bad("Uma linha do arquivo tem número de campos diferente do cabeçalho."));
+        }
+        let mut q = sqlx::query(&sql);
+        for v in row {
+            q = q.bind(v.as_deref().filter(|s| !s.is_empty()));
+        }
+        q.execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    log(&db, user.id, "import", json!({ "table": table, "rows": b.rows.len() })).await?;
+    Ok(Json(json!({ "imported": b.rows.len() })))
 }

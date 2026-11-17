@@ -17,7 +17,7 @@ case "${1:-}" in
   run)
     . /root/.cargo/env
     cd server
-    DATABASE_URL="$URL" MB_WEB_DIR=../web/dist CARGO_TARGET_DIR=/root/mb-target exec cargo run
+    DATABASE_URL="$URL" MB_WEB_DIR=../web/dist MB_BACKUP_DIR=../.dev/backups CARGO_TARGET_DIR=/root/mb-target exec cargo run
     ;;
   smoke)
     # Banco e porta próprios: não mexe nos dados de dev.
@@ -25,7 +25,7 @@ case "${1:-}" in
     PGPASSWORD="$PW" psql -h 127.0.0.1 -U masterbase -d masterbase_smoke -q -v ON_ERROR_STOP=1 -f dev/seed.sql
     . /root/.cargo/env
     (cd server && CARGO_TARGET_DIR=/root/mb-target cargo build -q)
-    DATABASE_URL="${URL%/*}/masterbase_smoke" MB_ADDR=127.0.0.1:8081 /root/mb-target/debug/masterbase >/tmp/mb-smoke.log 2>&1 &
+    DATABASE_URL="${URL%/*}/masterbase_smoke" MB_ADDR=127.0.0.1:8081 MB_BACKUP_DIR=/tmp/mb-smoke-backups /root/mb-target/debug/masterbase >/tmp/mb-smoke.log 2>&1 &
     pid=$!
     for _ in $(seq 30); do curl -s -o /dev/null http://127.0.0.1:8081/api/setup && break; sleep 0.5; done
     bash dev/smoke.sh http://127.0.0.1:8081; rc=$?

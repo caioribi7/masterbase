@@ -1,12 +1,16 @@
+mod access;
 mod activity;
 mod auth;
+mod backup;
 mod catalog;
 mod data;
 mod error;
+mod query;
 mod schema;
 
 use axum::http::{header, HeaderValue};
-use axum::routing::{get, patch, post};
+use axum::extract::DefaultBodyLimit;
+use axum::routing::{delete, get, patch, post};
 use axum::Router;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -39,6 +43,18 @@ async fn main() {
         .route("/tables", get(data::list_tables))
         .route("/tables/{name}", get(data::read_table))
         .route("/tables/{name}/rows", post(data::insert_row).patch(data::update_cell).delete(data::delete_rows))
+        .route("/tables/{name}/import", post(data::import_rows).layer(DefaultBodyLimit::max(8 * 1024 * 1024)))
+        .route("/query", post(query::run))
+        .route("/queries", get(query::list_saved).post(query::save))
+        .route("/queries/{id}", delete(query::delete_saved))
+        .route("/users", get(access::list_users).post(access::create_user))
+        .route("/users/{id}", patch(access::change_user))
+        .route("/password", post(access::change_password))
+        .route("/keys", get(access::list_keys).post(access::create_key))
+        .route("/keys/{id}", delete(access::delete_key))
+        .route("/backups", get(backup::list).post(backup::create))
+        .route("/backups/{name}", get(backup::download).delete(backup::delete))
+        .route("/backups/{name}/restore", post(backup::restore))
         .route("/schema", get(schema::get_schema).post(schema::create_table))
         .route("/schema/{table}", patch(schema::rename_table).delete(schema::drop_table))
         .route("/schema/{table}/columns", post(schema::add_column))
@@ -50,7 +66,7 @@ async fn main() {
         .layer(header_layer(header::CONTENT_SECURITY_POLICY, "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'"))
         .layer(header_layer(header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
         .layer(header_layer(header::REFERRER_POLICY, "no-referrer"))
-        .layer(axum::extract::DefaultBodyLimit::max(256 * 1024))
+        .layer(DefaultBodyLimit::max(256 * 1024))
         .with_state(db);
 
     let addr = std::env::var("MB_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
