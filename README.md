@@ -129,6 +129,8 @@ cd web && npm run dev                                   # tela com recarga ao vi
 bash dev/smoke.sh                                       # 116 checagens na API (banco novo com dev/seed.sql)
 ```
 
+A página de apresentação fica em `site/` (React e Vite, fundo animado Flux Lines do [React Bits](https://reactbits.dev)): `cd site && npm ci && npm run dev`. O `npm run build` gera arquivos estáticos em `site/dist`, que servem em qualquer hospedagem.
+
 Para publicar uma versão: `git tag v0.2.0 && git push origin v0.2.0`. O GitHub compila para Linux e macOS e publica em Releases, de onde o instalador baixa.
 
 Leia [CONTRIBUTING.md](CONTRIBUTING.md) antes de mandar um pull request.

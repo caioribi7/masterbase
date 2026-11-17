@@ -5,3 +5,5 @@ server/target/
 web/node_modules/
 web/dist/
 backups/
+site/node_modules/
+site/dist/
