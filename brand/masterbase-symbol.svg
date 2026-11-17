@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="#000000">
+  <title>Masterbase — Âncora-Chave</title>
+  <!-- Head: solid key bow with keyhole cut (evenodd) -->
+  <path fill-rule="evenodd" d="M98 70a30 30 0 1 0 60 0a30 30 0 1 0 -60 0Z M120 86L123 71.48A9 9 0 1 1 133 71.48L136 86Z"/>
+  <!-- Shank (16 wide), runs into the arm -->
+  <rect x="120" y="98" width="16" height="114"/>
+  <!-- Key bit: two separate teeth (gap 10) -->
+  <rect x="130" y="116" width="30" height="15" rx="4"/><rect x="130" y="141" width="22" height="15" rx="4"/>
+  <!-- Arm: arc r62, stroke 16 -->
+  <path d="M66 150A62 62 0 0 0 190 150" fill="none" stroke="#000000" stroke-width="16"/>
+  <!-- Flukes: softened 60° arrowheads -->
+  <path d="M52 154L66 129.75L80 154Z" stroke="#000000" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M176 154L190 129.75L204 154Z" stroke="#000000" stroke-width="8" stroke-linejoin="round"/>
+</svg>

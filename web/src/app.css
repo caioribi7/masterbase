@@ -1,0 +1,67 @@
+/* Tokens: brand/ui-direcao.md */
+:root {
+  --void: #0A0B1F;
+  --base: #12133A;
+  --raise: #1C1E52;
+  --line: #1C1F4A;
+  --line-2: #23265C;
+  --lavender: #9AA0E0;
+  --lavender-2: #7D83C4;
+  --lavender-3: #5E64A8;
+  --soft: #C9CCEB;
+  --lime: #E6FF00;
+  --text: #F4F5FF;
+  --ok: #E6FF00;
+  --err: #FF7A8A;
+
+  --edge: linear-gradient(135deg, rgba(154,160,224,.7) 0%, rgba(154,160,224,.1) 28%, rgba(154,160,224,.06) 72%, rgba(154,160,224,.55) 100%);
+  --inner: inset 0 1px 0 rgba(255,255,255,.12), inset 0 0 24px rgba(154,160,224,.08);
+
+  color-scheme: dark;
+  font-family: 'Geologica', system-ui, sans-serif;
+  color: var(--text);
+  background: var(--void);
+}
+
+* { box-sizing: border-box; margin: 0; }
+body { min-height: 100vh; background: var(--void); }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+
+.mono { font-family: 'Martian Mono', monospace; }
+.brand { font-family: 'Tektur', sans-serif; font-weight: 800; letter-spacing: -.03em; }
+
+/* Vidro da referência "Get Started": borda que acende nos cantos + filete de luz no topo. */
+.glass {
+  background: linear-gradient(180deg, #20235A 0%, #15173F 100%);
+  border: 1px solid rgba(154,160,224,.28);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.12);
+  border-radius: 10px;
+  transition: border-color .18s ease-out, filter .18s ease-out;
+}
+.glass:hover:not(:disabled) { border-color: rgba(154,160,224,.5); filter: brightness(1.08); }
+
+.btn { height: 40px; padding: 0 16px; display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; }
+.btn-primary {
+  height: 40px; padding: 0 18px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  background: linear-gradient(180deg, #F2FF6A 0%, #E6FF00 55%, #D4EB00 100%);
+  border: 1px solid rgba(255,255,255,.55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 0 24px rgba(230,255,0,.22);
+  color: var(--base); font-weight: 600; font-size: 14px;
+  transition: filter .18s ease-out;
+}
+.btn-primary:hover:not(:disabled) { filter: brightness(1.05); }
+.btn-primary:disabled { opacity: .6; cursor: wait; }
+
+.field {
+  height: 46px; width: 100%; padding: 0 14px; border-radius: 12px;
+  background: #0C0D28; border: 1px solid #2A2E6A;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.5);
+  font-size: 15px; outline: none;
+  transition: border-color .18s ease-out, box-shadow .18s ease-out;
+}
+.field:focus { border-color: var(--lime); box-shadow: 0 0 0 3px rgba(230,255,0,.12), 0 0 18px rgba(230,255,0,.18), inset 0 1px 2px rgba(0,0,0,.5); }
+.label { font-family: 'Martian Mono', monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--lavender); }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

@@ -1,0 +1,6 @@
+# ambiente local (Postgres de dev, senha)
+.dev/
+# builds e dependências
+server/target/
+web/node_modules/
+web/dist/
