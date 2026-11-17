@@ -20,7 +20,7 @@
 
 O Masterbase fica na frente de um banco Postgres comum. Você cria tabelas, liga uma na outra, edita os dados como numa planilha e monta consultas escolhendo opções. O banco continua sendo Postgres de verdade: dá para conectar qualquer outra ferramenta nele quando precisar.
 
-> **Estado do projeto:** versão inicial (0.1). Funciona de ponta a ponta e tem testes, mas ainda não tem instalador nem imagem Docker. Veja [o que falta](MVP.md#falta) antes de usar com dados importantes.
+> **Estado do projeto:** versão inicial (0.1). Funciona de ponta a ponta e tem testes, mas ainda não rodou em servidor de produção. Veja [o que falta](MVP.md#falta) antes de usar com dados importantes.
 
 ## O que dá para fazer
 
@@ -48,44 +48,37 @@ O Masterbase fica na frente de um banco Postgres comum. Você cria tabelas, liga
 
 ## Começar
 
-Você precisa de **Postgres 16** (versões mais antigas não foram testadas), **Rust** (estável) e **Node 20 ou mais novo**. Em Linux, macOS ou WSL:
+Em Ubuntu, Debian ou macOS, cole no terminal:
 
 ```bash
-git clone https://github.com/caioribi7/masterbase.git
-cd masterbase
-
-# 1. Um banco para o Masterbase (troque a senha)
-sudo -u postgres psql -c "CREATE ROLE masterbase LOGIN PASSWORD 'troque-esta-senha'"
-sudo -u postgres psql -c "CREATE DATABASE masterbase OWNER masterbase"
-
-# 2. A tela
-cd web && npm ci && npm run build && cd ..
-
-# 3. O servidor
-cd server
-DATABASE_URL="postgresql://masterbase:troque-esta-senha@127.0.0.1:5432/masterbase" cargo run --release
+curl -fsSL https://raw.githubusercontent.com/caioribi7/masterbase/main/install.sh | sh
 ```
 
-Abra `http://127.0.0.1:8080`. Como o banco é novo, a primeira tela é o cadastro: **a primeira conta criada administra tudo**. Depois dela, o cadastro fecha e novas pessoas entram pela página Acesso.
-
-Quer ver com dados de exemplo? Antes do passo 3, carregue a padaria fictícia:
+O instalador coloca o Postgres (se faltar), cria o banco e instala o comando. Depois:
 
 ```bash
-PGPASSWORD='troque-esta-senha' psql -h 127.0.0.1 -U masterbase -d masterbase -f dev/seed.sql
+masterbase
 ```
 
-Para colocar num servidor de verdade (HTTPS, serviço do sistema, backups), siga o guia de [instalação](docs/instalacao.md).
+O painel abre no navegador. Como o banco é novo, a primeira tela é o cadastro: **a primeira conta criada administra tudo**. Depois dela, o cadastro fecha e novas pessoas entram pela página Acesso.
 
-## Configuração
+Para um servidor (acesso pela rede ou pela internet, HTTPS, ligar sozinho):
 
-Tudo por variável de ambiente. Há um modelo em [`.env.example`](.env.example).
+```bash
+masterbase configurar         # porta e quem pode acessar
+sudo masterbase servico       # liga junto com o servidor
+```
 
-| Variável | Padrão | Para que serve |
-|---|---|---|
-| `DATABASE_URL` | (obrigatória) | Conexão com o Postgres. |
-| `MB_ADDR` | `127.0.0.1:8080` | Endereço e porta em que o servidor escuta. |
-| `MB_WEB_DIR` | `../web/dist` | Pasta com a tela já compilada. |
-| `MB_BACKUP_DIR` | `backups` | Onde os backups são guardados. |
+O passo a passo completo está em [instalação](docs/instalacao.md).
+
+| Comando | O que faz |
+|---|---|
+| `masterbase` | Abre o painel. Na primeira vez sem instalador, pergunta a configuração. |
+| `masterbase configurar` | Muda banco, porta e quem pode acessar. |
+| `masterbase servico` | Deixa rodando sozinho (Linux com systemd). |
+| `masterbase versao` | Mostra a versão. |
+
+O programa é um arquivo só, de uns 5 MB, com a tela dentro. Parado, usa uns 4 MB de memória.
 
 ## Segurança
 
@@ -103,9 +96,10 @@ Achou uma falha? Não abra issue pública. Veja [SECURITY.md](SECURITY.md).
 ## Como é feito
 
 ```
-server/   Rust: Axum (HTTP) + sqlx (Postgres). Um binário.
+server/   Rust: Axum (HTTP) + sqlx (Postgres). Um binário, com a tela dentro.
 web/      Svelte 5 + Vite. Vira arquivos estáticos que o servidor entrega.
 dev/      Dados de exemplo e teste de ponta a ponta.
+install.sh  Instalador de um comando.
 docs/     Guias.
 brand/    Logo e regras de interface.
 ```
@@ -114,11 +108,17 @@ O servidor não tem estado além do banco: as tabelas que você cria ficam no sc
 
 ## Desenvolver
 
+Precisa de Postgres 16, Rust estável e Node 20+.
+
 ```bash
-cd server && cargo test          # testes do servidor
-cd web && npm run dev            # tela com recarga ao vivo em localhost:5173
-bash dev/smoke.sh                # 83 checagens na API (banco novo com dev/seed.sql)
+cd web && npm ci && npm run build                       # a tela vai para web/dist
+cd server && DATABASE_URL=postgresql://... cargo run    # compila com a tela dentro
+cd server && cargo test                                 # testes do servidor
+cd web && npm run dev                                   # tela com recarga ao vivo em localhost:5173
+bash dev/smoke.sh                                       # 83 checagens na API (banco novo com dev/seed.sql)
 ```
+
+Para publicar uma versão: `git tag v0.2.0 && git push origin v0.2.0`. O GitHub compila para Linux e macOS e publica em Releases, de onde o instalador baixa.
 
 Leia [CONTRIBUTING.md](CONTRIBUTING.md) antes de mandar um pull request.
 

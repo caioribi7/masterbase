@@ -66,13 +66,20 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
 - CSP `self`, nosniff, no-referrer, sem iframe. `unsafe` proibido no crate.
 - Metadados no schema `masterbase`. A tela só vê `public`.
 
+**Instalar**
+- `install.sh`: um comando. Postgres via apt ou Homebrew, banco com senha aleatória, binário da página de releases com soma conferida, config em `~/.config/masterbase/masterbase.env` (600).
+- Comando `masterbase`: abre o painel e o navegador. `configurar` (banco, porta, só este computador / rede local / internet com HTTPS). `servico` (unit do systemd com o usuário de quem chamou).
+- Binário único com a tela embutida: 4,7 MB estático (musl), ~4 MB de memória parado.
+- `.github/workflows/release.yml`: tag `v*` compila Linux x86_64/arm64 e macOS arm64/x86_64 e publica.
+
 **Código**
-- `server/src/`: `main` (rotas), `auth` (login, sessão, papéis), `access` (pessoas e chaves), `data` (linhas, importar), `schema` (estrutura), `query` (consultas), `backup`, `activity` (auditoria e início), `catalog` (nomes e tipos), `error`.
+- `server/src/`: `main` (rotas e comandos), `config` (arquivo, perguntas, serviço), `auth` (login, sessão, papéis), `access` (pessoas e chaves), `data` (linhas, importar), `schema` (estrutura), `query` (consultas), `backup`, `activity` (auditoria e início), `catalog` (nomes e tipos), `error`.
 - `web/src/`: `Shell` (menu), uma página por arquivo (`Home`, `Tables`, `Structure`, `Relations`, `Queries`, `Access`, `Keys`, `Backups`, `Activity`, `Login`), `Modal`, `Icon`, `lib.js`, `session.svelte.js`.
 
 **Testes**
 - `cargo test`: 9 testes (aspas, rótulos, tipos, nomes, bloqueio de login, SELECT das consultas, nome de backup, leitura da URL do banco).
 - `dev/wsl.sh smoke`: 83 checagens de ponta a ponta na API, num banco separado (`masterbase_smoke`, porta 8081). Cobre papéis, chaves, consultas, importar e restaurar backup.
+- Instalador no WSL: instala, cria banco, `masterbase` serve a tela; segunda vez mantém a config. `configurar` testado com terminal simulado.
 - Navegador (1440 px): todas as páginas abertas; criar tabela com ligação, nova linha, ordenar, apagar, rodar consulta, fazer backup.
 
 ## Falta
@@ -87,10 +94,10 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
 - Gráfico rápido do resultado da consulta.
 - Limite de login por IP e persistente.
 - TLS no sqlx para banco remoto. Cookie Secure exige HTTPS fora do localhost.
-- Binário único com a tela embutida. Imagem Docker.
 - Usuário do Postgres com permissão mínima. Hoje usa o dono do banco.
 - Contagem com `count(*)`: lenta acima de ~1M linhas. Download de backup carrega o arquivo na memória.
 - Tela de celular (abaixo de ~700 px).
+- Instalador: só apt e Homebrew. Fedora/Arch à mão. `servico` e o macOS não testados. Primeiro release ainda não publicado.
 
 ## Rodar
 

@@ -228,7 +228,8 @@ async fn start_session(db: &PgPool, jar: CookieJar, user_id: i64) -> ApiResult<(
         .await?;
     let cookie = Cookie::build((COOKIE, hex::encode(raw)))
         .http_only(true)
-        .secure(true)
+        // Secure por padrão. Só sai na rede local sem HTTPS (escolha explícita em `masterbase configurar`).
+        .secure(std::env::var("MB_INSECURE_COOKIE").as_deref() != Ok("1"))
         .same_site(SameSite::Strict)
         .path("/");
     Ok((jar.add(cookie), Json(json!({ "ok": true }))))

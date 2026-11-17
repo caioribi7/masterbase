@@ -1,0 +1,72 @@
+name: Release
+
+# Ao subir uma tag v* (ex.: git tag v0.1.0 && git push origin v0.1.0), compila o binário
+# com a tela dentro para Linux e macOS e publica na página de releases.
+# O install.sh baixa daqui.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-24.04,     target: x86_64-unknown-linux-musl,  asset: masterbase-linux-x86_64 }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, asset: masterbase-linux-aarch64 }
+          - { os: macos-14,         target: aarch64-apple-darwin,       asset: masterbase-macos-aarch64 }
+          - { os: macos-14,         target: x86_64-apple-darwin,        asset: masterbase-macos-x86_64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Compilar a tela
+        working-directory: web
+        run: npm ci && npm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: musl
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+
+      - name: Compilar o servidor
+        working-directory: server
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Empacotar
+        run: |
+          cp server/target/${{ matrix.target }}/release/masterbase ${{ matrix.asset }}
+          if command -v sha256sum >/dev/null; then sha256sum ${{ matrix.asset }} > ${{ matrix.asset }}.sha256
+          else shasum -a 256 ${{ matrix.asset }} > ${{ matrix.asset }}.sha256; fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}*
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" masterbase-* --repo "${{ github.repository }}" --generate-notes

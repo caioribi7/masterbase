@@ -1,84 +1,63 @@
 # Instalação num servidor
 
-Para rodar o Masterbase de verdade, com HTTPS e reiniciando sozinho. Para só experimentar no seu computador, o [README](../README.md#começar) basta.
+Para rodar o Masterbase num servidor, com HTTPS e ligando sozinho. Para só experimentar no seu computador, o [README](../README.md#começar) basta.
 
-> Ainda não existe instalador nem imagem Docker. Os passos abaixo são manuais. Os arquivos de exemplo do systemd e do Caddy seguem o formato padrão dessas ferramentas, mas **não foram testados num servidor real**: confira antes de confiar.
+> O instalador foi testado no Ubuntu 24.04 (WSL). O serviço do systemd e o Caddy seguem o formato padrão dessas ferramentas, mas **ainda não foram testados num servidor real**: confira antes de confiar.
 
 ## O que precisa
 
-- Linux (testado no Ubuntu 24.04).
-- Postgres 16, com `pg_dump` e `pg_restore` instalados na mesma máquina do Masterbase (os backups usam os dois). Versões mais antigas do Postgres não foram testadas.
-- Rust estável e Node 20+, só para compilar.
+- Ubuntu ou Debian (o instalador usa `apt`). Em outro Linux, veja [instalar à mão](#instalar-à-mão).
+- Um usuário com `sudo`.
 - Um domínio apontando para o servidor, para ter HTTPS.
 
-## 1. Banco
+## 1. Instalar
 
 ```bash
-sudo -u postgres psql -c "CREATE ROLE masterbase LOGIN PASSWORD 'uma-senha-longa-e-aleatoria'"
-sudo -u postgres psql -c "CREATE DATABASE masterbase OWNER masterbase"
+curl -fsSL https://raw.githubusercontent.com/caioribi7/masterbase/main/install.sh | sh
 ```
 
-Use um banco só para o Masterbase. Ele cria dois espaços dentro desse banco: `public` (suas tabelas) e `masterbase` (contas, sessões, chaves, histórico).
+O instalador:
 
-## 2. Compilar
+- instala o Postgres, se ainda não tiver;
+- cria o banco `masterbase` com uma senha aleatória;
+- baixa o Masterbase da [página de releases](https://github.com/caioribi7/masterbase/releases) e confere a soma de verificação;
+- coloca o comando em `/usr/local/bin/masterbase`;
+- salva a configuração em `~/.config/masterbase/masterbase.env`, que só o seu usuário consegue ler.
+
+Rodar de novo atualiza o programa e mantém a configuração.
+
+## 2. Configurar
 
 ```bash
-git clone https://github.com/caioribi7/masterbase.git /opt/masterbase
-cd /opt/masterbase/web && npm ci && npm run build
-cd /opt/masterbase/server && cargo build --release
+masterbase configurar
 ```
 
-O resultado é um binário (`server/target/release/masterbase`) e uma pasta de arquivos estáticos (`web/dist`).
+São três perguntas: o endereço do banco (o instalador já preencheu), a porta e quem vai abrir o painel.
 
-## 3. Configurar
+| Resposta | Quando usar |
+|---|---|
+| Só este computador | Uso pessoal, no seu notebook. |
+| Outras máquinas da rede local | Rede de casa ou do escritório, sem HTTPS. A senha passa aberta pela rede: só em rede de confiança. |
+| Pela internet, com HTTPS na frente | Servidor na nuvem. O Masterbase escuta só em `127.0.0.1` e o Caddy ou o Nginx atende a internet. |
 
-Crie `/etc/masterbase.env`, legível só pelo root (`chmod 600`):
+## 3. Deixar rodando sozinho
 
 ```bash
-DATABASE_URL=postgresql://masterbase:uma-senha-longa-e-aleatoria@127.0.0.1:5432/masterbase
-MB_ADDR=127.0.0.1:8080
-MB_WEB_DIR=/opt/masterbase/web/dist
-MB_BACKUP_DIR=/var/lib/masterbase/backups
+sudo masterbase servico
 ```
 
-Deixe `MB_ADDR` em `127.0.0.1`. Quem atende a internet é o proxy do passo 5, não o Masterbase direto.
-
-Se a senha do banco tiver caracteres como `@`, `:` ou `/`, escreva-os em formato de URL (`%40`, `%3A`, `%2F`).
-
-## 4. Serviço do sistema
-
-`/etc/systemd/system/masterbase.service`:
-
-```ini
-[Unit]
-Description=Masterbase
-After=network.target postgresql.service
-
-[Service]
-User=masterbase
-EnvironmentFile=/etc/masterbase.env
-ExecStart=/opt/masterbase/server/target/release/masterbase
-Restart=on-failure
-StateDirectory=masterbase
-
-[Install]
-WantedBy=multi-user.target
-```
+Isso cria o serviço `masterbase` no systemd, rodando com o seu usuário, e liga na hora. A partir daí ele sobe junto com o servidor.
 
 ```bash
-sudo useradd --system --home /var/lib/masterbase masterbase
-sudo mkdir -p /var/lib/masterbase/backups && sudo chown -R masterbase: /var/lib/masterbase
-sudo systemctl enable --now masterbase
-sudo journalctl -u masterbase -f     # deve mostrar "Masterbase em http://127.0.0.1:8080"
+systemctl status masterbase          # está rodando?
+journalctl -u masterbase -f          # mensagens do Masterbase
 ```
 
-Na primeira subida o Masterbase cria as próprias tabelas sozinho.
+## 4. HTTPS
 
-## 5. HTTPS
+**É obrigatório para acesso pela internet.** Fora da rede local, o cookie de sessão só é enviado por HTTPS, então sem ele o login não se mantém.
 
-**É obrigatório fora do seu computador.** O cookie de sessão só é enviado por HTTPS; sem isso, o login não se mantém.
-
-O jeito mais curto é o [Caddy](https://caddyserver.com), que tira o certificado sozinho. `/etc/caddy/Caddyfile`:
+O caminho mais curto é o [Caddy](https://caddyserver.com), que tira o certificado sozinho. `/etc/caddy/Caddyfile`:
 
 ```
 dados.suaempresa.com.br {
@@ -86,30 +65,61 @@ dados.suaempresa.com.br {
 }
 ```
 
-Com nginx ou outro proxy, o que importa é: terminar o HTTPS nele e repassar para `127.0.0.1:8080`.
+Com nginx ou outro proxy, o que importa é: o HTTPS termina nele e ele repassa para `127.0.0.1:8080`.
 
-## 6. Primeiro acesso
+## 5. Primeiro acesso
 
-Abra `https://dados.suaempresa.com.br`. A tela pede a criação da primeira conta. **Faça isso logo depois de subir o servidor:** enquanto não existe nenhuma conta, quem chegar primeiro vira quem administra.
+Abra o endereço do painel. A tela pede a primeira conta. **Faça isso logo depois de subir o servidor:** enquanto não houver nenhuma conta, quem chegar primeiro vira quem administra.
 
 Daí em diante, siga o [guia de uso](guia-de-uso.md).
 
 ## Backups
 
-Os backups da página Backups ficam em `MB_BACKUP_DIR`, no mesmo servidor. Isso protege contra erro humano (apagou a tabela errada), não contra perder o servidor. Copie essa pasta para outro lugar com a ferramenta que você já usa (rsync, restic, o backup do provedor).
+Os backups da página Backups ficam em `~/.local/share/masterbase/backups`, no mesmo servidor. Isso protege contra erro humano (apagou a tabela errada), não contra perder o servidor. Copie essa pasta para outro lugar com a ferramenta que você já usa (rsync, restic, o backup do provedor).
 
 Esses backups têm só as suas tabelas. Para guardar também contas e histórico, faça um `pg_dump` do banco inteiro por fora.
 
 ## Atualizar
 
+Rode o instalador de novo e reinicie:
+
 ```bash
-cd /opt/masterbase && git pull
-cd web && npm ci && npm run build
-cd ../server && cargo build --release
+curl -fsSL https://raw.githubusercontent.com/caioribi7/masterbase/main/install.sh | sh
 sudo systemctl restart masterbase
 ```
 
 Mudanças nas tabelas internas do Masterbase são aplicadas sozinhas quando o serviço sobe. Faça um backup antes.
+
+## Configuração à mão
+
+O arquivo `~/.config/masterbase/masterbase.env` tem uma linha por item. Variáveis de ambiente com o mesmo nome valem mais que o arquivo.
+
+| Variável | Padrão | Para que serve |
+|---|---|---|
+| `DATABASE_URL` | (obrigatória) | Conexão com o Postgres. Caracteres como `@`, `:` ou `/` na senha vão em formato de URL (`%40`, `%3A`, `%2F`). |
+| `MB_ADDR` | `127.0.0.1:8080` | Endereço e porta do painel. |
+| `MB_BACKUP_DIR` | `backups` | Pasta dos backups. |
+| `MB_INSECURE_COOKIE` | (vazio) | `1` aceita login sem HTTPS. Só para rede local. |
+| `MB_CONFIG` | `~/.config/masterbase/masterbase.env` | Outro arquivo de configuração. |
+| `MB_WEB_DIR` | (vazio) | Serve a tela de uma pasta em vez da que vem dentro do programa. Só para desenvolver. |
+
+## Instalar à mão
+
+Em outro Linux, ou para compilar você mesmo:
+
+1. Instale o Postgres 16 com `pg_dump` e `pg_restore` na mesma máquina (os backups usam os dois).
+2. Crie o banco:
+   ```bash
+   sudo -u postgres psql -c "CREATE ROLE masterbase LOGIN PASSWORD 'uma-senha-longa-e-aleatoria'"
+   sudo -u postgres psql -c "CREATE DATABASE masterbase OWNER masterbase"
+   ```
+3. Baixe o programa da [página de releases](https://github.com/caioribi7/masterbase/releases) ou compile (precisa de Rust e Node 20+):
+   ```bash
+   git clone https://github.com/caioribi7/masterbase.git && cd masterbase
+   cd web && npm ci && npm run build && cd ..
+   cd server && cargo build --release      # sai em server/target/release/masterbase
+   ```
+4. Copie para `/usr/local/bin/masterbase` e siga do passo 2 acima.
 
 ## Usar um banco que já existe
 

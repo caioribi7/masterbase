@@ -3,20 +3,65 @@ mod activity;
 mod auth;
 mod backup;
 mod catalog;
+mod config;
 mod data;
 mod error;
 mod query;
 mod schema;
 
-use axum::http::{header, HeaderValue};
+use axum::http::{header, HeaderValue, StatusCode, Uri};
+use axum::response::{IntoResponse, Response};
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
 
-#[tokio::main]
-async fn main() {
+/// A tela compilada (web/dist) vai dentro do binário. Sem a pasta, compila igual e avisa ao abrir.
+#[derive(rust_embed::Embed)]
+#[folder = "../web/dist"]
+#[allow_missing = true]
+struct Web;
+
+async fn web_file(uri: Uri) -> Response {
+    let path = uri.path().trim_start_matches('/');
+    let file = Web::get(path).filter(|_| !path.is_empty()).or_else(|| Web::get("index.html"));
+    match file {
+        Some(f) => ([(header::CONTENT_TYPE, f.metadata.mimetype().to_string())], f.data).into_response(),
+        None => (StatusCode::NOT_FOUND, "tela não compilada: rode npm run build em web/").into_response(),
+    }
+}
+
+fn main() {
+    match std::env::args().nth(1).as_deref() {
+        None | Some("iniciar") => {}
+        Some("configurar") => return config::configure(),
+        Some("servico" | "serviço") => return config::service(),
+        Some("versao" | "versão" | "--version" | "-V") => return println!("masterbase {}", env!("CARGO_PKG_VERSION")),
+        Some("ajuda" | "--help" | "-h") => return config::help(),
+        Some(other) => {
+            eprintln!("comando desconhecido: {other}
+");
+            config::help();
+            std::process::exit(2);
+        }
+    }
+    config::load();
+    if std::env::var_os("DATABASE_URL").is_none() {
+        use std::io::IsTerminal;
+        if !std::io::stdin().is_terminal() {
+            eprintln!("sem configuração: rode `masterbase configurar` ou defina DATABASE_URL");
+            std::process::exit(1);
+        }
+        println!("Primeira vez por aqui.
+");
+        config::configure();
+        config::load();
+    }
+    tokio::runtime::Runtime::new().expect("runtime").block_on(serve());
+}
+
+async fn serve() {
     let url = std::env::var("DATABASE_URL").expect("defina DATABASE_URL");
     // search_path com masterbase primeiro: a tabela _sqlx_migrations fica fora de public (e fora da tela).
     // statement_timeout: consulta pesada não segura conexão para sempre.
@@ -31,7 +76,6 @@ async fn main() {
     sqlx::query("CREATE SCHEMA IF NOT EXISTS masterbase").execute(&db).await.expect("sem permissão para criar schema");
     sqlx::migrate!().run(&db).await.expect("migração falhou");
 
-    let web = std::env::var("MB_WEB_DIR").unwrap_or_else(|_| "../web/dist".into());
     let api = Router::new()
         .route("/setup", get(auth::setup))
         .route("/signup", post(auth::signup))
@@ -60,9 +104,13 @@ async fn main() {
         .route("/schema/{table}/columns", post(schema::add_column))
         .route("/schema/{table}/columns/{column}", patch(schema::change_column).delete(schema::drop_column));
 
-    let app = Router::new()
-        .nest("/api", api)
-        .fallback_service(ServeDir::new(&web).fallback(ServeFile::new(format!("{web}/index.html"))))
+    // MB_WEB_DIR serve a tela do disco (desenvolvimento). Sem ela, usa a que está dentro do binário.
+    let app = Router::new().nest("/api", api);
+    let app = match std::env::var("MB_WEB_DIR") {
+        Ok(web) => app.fallback_service(ServeDir::new(&web).fallback(ServeFile::new(format!("{web}/index.html")))),
+        Err(_) => app.fallback(web_file),
+    };
+    let app = app
         .layer(header_layer(header::CONTENT_SECURITY_POLICY, "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'"))
         .layer(header_layer(header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
         .layer(header_layer(header::REFERRER_POLICY, "no-referrer"))
@@ -70,8 +118,17 @@ async fn main() {
         .with_state(db);
 
     let addr = std::env::var("MB_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
-    let listener = tokio::net::TcpListener::bind(&addr).await.expect("porta ocupada");
-    println!("Masterbase em http://{addr}");
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap_or_else(|e| {
+        eprintln!("não deu para usar {addr}: {e}. Mude a porta com `masterbase configurar`.");
+        std::process::exit(1);
+    });
+    let local = addr.replace("0.0.0.0", "127.0.0.1");
+    println!("Masterbase em http://{local}");
+    if addr.starts_with("0.0.0.0") {
+        println!("Nas outras máquinas da rede, use o IP deste computador no lugar de 127.0.0.1.");
+    }
+    println!("Ctrl+C para parar.");
+    config::open_browser(&format!("http://{local}"));
     axum::serve(listener, app)
         .with_graceful_shutdown(async { tokio::signal::ctrl_c().await.ok(); })
         .await
