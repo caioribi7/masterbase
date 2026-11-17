@@ -30,6 +30,7 @@ pub async fn list_users(user: User, State(db): State<PgPool>) -> ApiResult<Json<
 pub struct NewUser {
     name: String,
     email: String,
+    #[serde(default)]
     password: String,
     role: String,
 }
@@ -40,7 +41,14 @@ pub async fn create_user(user: User, State(db): State<PgPool>, Json(b): Json<New
     if b.name.trim().is_empty() || !email.contains('@') {
         return Err(bad("Informe nome e um e-mail válido."));
     }
-    check_password(&b.password)?;
+    // Sem senha: a pessoa recebe um link de convite e cria a própria senha.
+    let invite = b.password.is_empty();
+    let password = if invite {
+        hex::encode(crate::auth::random_token())
+    } else {
+        check_password(&b.password)?;
+        b.password.clone()
+    };
     Role::parse(&b.role).ok_or(bad("Papel desconhecido."))?;
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO masterbase.users (name, email, password_hash, role) VALUES ($1, $2, $3, $4)
@@ -48,13 +56,28 @@ pub async fn create_user(user: User, State(db): State<PgPool>, Json(b): Json<New
     )
     .bind(b.name.trim())
     .bind(&email)
-    .bind(hash_password(&b.password)?)
+    .bind(hash_password(&password)?)
     .bind(&b.role)
     .fetch_optional(&db)
     .await?
     .ok_or(ApiError(StatusCode::CONFLICT, "Esse e-mail já tem conta."))?;
     log(&db, user.id, "add_user", json!({ "email": email, "role": b.role })).await?;
-    Ok(Json(json!({ "id": id })))
+    let token = if invite { Some(crate::auth::new_password_link(&db, id).await?) } else { None };
+    Ok(Json(json!({ "id": id, "token": token })))
+}
+
+/// Link para a pessoa criar uma senha nova (esqueceu a dela). Vale 24 horas, uma vez só.
+/// O servidor não manda e-mail: quem administra copia o link e envia como preferir.
+pub async fn password_link(user: User, State(db): State<PgPool>, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
+    user.admin()?;
+    let email: String = sqlx::query_scalar("SELECT email FROM masterbase.users WHERE id = $1 AND active")
+        .bind(id)
+        .fetch_optional(&db)
+        .await?
+        .ok_or(ApiError(StatusCode::NOT_FOUND, "Pessoa não encontrada ou desativada."))?;
+    let token = crate::auth::new_password_link(&db, id).await?;
+    log(&db, user.id, "password_link", json!({ "email": email })).await?;
+    Ok(Json(json!({ "token": token })))
 }
 
 #[derive(Deserialize)]
@@ -117,11 +140,19 @@ pub async fn change_password(user: User, State(db): State<PgPool>, Json(b): Json
     if !ok {
         return Err(bad("A senha atual não confere."));
     }
+    let mut tx = db.begin().await?;
     sqlx::query("UPDATE masterbase.users SET password_hash = $2 WHERE id = $1")
         .bind(user.id)
         .bind(hash_password(&b.new)?)
-        .execute(&db)
+        .execute(&mut *tx)
         .await?;
+    sqlx::query("DELETE FROM masterbase.sessions WHERE user_id = $1 AND token_hash IS DISTINCT FROM $2")
+        .bind(user.id)
+        .bind(&user.session)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM masterbase.password_tokens WHERE user_id = $1").bind(user.id).execute(&mut *tx).await?;
+    tx.commit().await?;
     log(&db, user.id, "change_password", json!({})).await?;
     Ok(Json(json!({ "ok": true })))
 }

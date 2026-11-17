@@ -1,6 +1,6 @@
 [package]
 name = "masterbase"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 description = "Postgres com tela visual, para quem não sabe SQL"
@@ -17,6 +17,8 @@ argon2 = "0.5"
 sha2 = "0.10"
 rand = "0.8"
 hex = "0.4"
+time = { version = "0.3", default-features = false }
+tokio-util = { version = "0.7", features = ["io"] }
 age = "0.11"
 futures-util = { version = "0.3", default-features = false }
 rust-embed = { version = "8", features = ["mime-guess"] }

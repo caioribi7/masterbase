@@ -6,6 +6,11 @@ cd "$(dirname "$0")/.."
 URL="$(sed 's/:54329/:5432/' .dev/database_url)"
 PW="$(sed -E 's#.*://masterbase:([^@]+)@.*#\1#' .dev/database_url)"
 service postgresql start >/dev/null
+# Papel do editor SQL (só linhas). Em dev usa a mesma senha do dono.
+su postgres -c "psql -q" >/dev/null <<SQL
+DO \$\$BEGIN CREATE ROLE masterbase_sql LOGIN PASSWORD '$PW'; EXCEPTION WHEN duplicate_object THEN NULL; END\$\$;
+SQL
+SQL_URL="$(echo "$URL" | sed 's#://masterbase:#://masterbase_sql:#')"
 
 case "${1:-}" in
   reset)
@@ -17,7 +22,7 @@ case "${1:-}" in
   run)
     . /root/.cargo/env
     cd server
-    DATABASE_URL="$URL" MB_WEB_DIR=../web/dist MB_BACKUP_DIR=../.dev/backups CARGO_TARGET_DIR=/root/mb-target exec cargo run
+    DATABASE_URL="$URL" MB_SQL_URL="$SQL_URL" MB_WEB_DIR=../web/dist MB_BACKUP_DIR=../.dev/backups CARGO_TARGET_DIR=/root/mb-target exec cargo run
     ;;
   smoke)
     # Banco e porta próprios: não mexe nos dados de dev.
@@ -26,7 +31,7 @@ case "${1:-}" in
     . /root/.cargo/env
     (cd server && CARGO_TARGET_DIR=/root/mb-target cargo build -q)
     rm -rf /tmp/mb-smoke-backups /tmp/mb-smoke.env
-    DATABASE_URL="${URL%/*}/masterbase_smoke" MB_CONFIG=/tmp/mb-smoke.env MB_ADDR=127.0.0.1:8081 MB_BACKUP_DIR=/tmp/mb-smoke-backups /root/mb-target/debug/masterbase >/tmp/mb-smoke.log 2>&1 &
+    DATABASE_URL="${URL%/*}/masterbase_smoke" MB_SQL_URL="${SQL_URL%/*}/masterbase_smoke" MB_CONFIG=/tmp/mb-smoke.env MB_ADDR=127.0.0.1:8081 MB_BACKUP_DIR=/tmp/mb-smoke-backups /root/mb-target/debug/masterbase >/tmp/mb-smoke.log 2>&1 &
     pid=$!
     for _ in $(seq 30); do curl -s -o /dev/null http://127.0.0.1:8081/api/setup && break; sleep 0.5; done
     bash dev/smoke.sh http://127.0.0.1:8081; rc=$?

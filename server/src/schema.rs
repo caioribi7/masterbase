@@ -3,7 +3,7 @@
 use crate::activity::log;
 use crate::auth::User;
 use crate::catalog::{columns, ident, kind_sql, valid_name, Col};
-use crate::error::{bad, ApiResult};
+use crate::error::{bad, ApiError, ApiResult};
 use axum::extract::{Path, State};
 use axum::Json;
 use serde::Deserialize;
@@ -35,6 +35,47 @@ pub struct NewCol {
     #[serde(default)]
     unique: bool,
     link: Option<String>,
+    default: Option<DefaultSpec>,
+}
+
+/// Valor padrão escolhido na tela. mode: nenhum | fixo | agora | hoje | id novo.
+#[derive(Deserialize)]
+pub struct DefaultSpec {
+    mode: String,
+    #[serde(default)]
+    value: String,
+}
+
+/// Expressão SQL do padrão para uma coluna do tipo `ty` (vindo do catálogo ou de kind_sql). None = sem padrão.
+/// Texto fixo vira literal com aspas dobradas e cast para o tipo: o Postgres confere o valor na hora.
+fn default_sql(d: &DefaultSpec, ty: &str) -> ApiResult<Option<String>> {
+    let time = ty.starts_with("timestamp") || ty == "timestamptz" || ty == "date";
+    Ok(Some(match d.mode.as_str() {
+        "nenhum" => return Ok(None),
+        "agora" if time => "now()".into(),
+        "hoje" if time => "CURRENT_DATE".into(),
+        "id novo" if ty == "uuid" => "gen_random_uuid()".into(),
+        "agora" | "hoje" => return Err(bad("Agora e hoje só valem para colunas de data.")),
+        "id novo" => return Err(bad("Id novo só vale para colunas de id único.")),
+        "fixo" => {
+            if d.value.chars().count() > 1000 {
+                return Err(bad("Valor padrão grande demais (até 1000 caracteres)."));
+            }
+            format!("'{}'::{ty}", d.value.replace('\'', "''"))
+        }
+        _ => return Err(bad("Tipo de valor padrão desconhecido.")),
+    }))
+}
+
+/// Erro de conversão de valor vira frase. O resto segue o mapa geral.
+fn cast_error(e: sqlx::Error) -> ApiError {
+    let code = e.as_database_error().and_then(|d| d.code()).map(|c| c.into_owned());
+    match code.as_deref() {
+        Some(c) if c.starts_with("22") || c == "42804" || c == "42846" => {
+            bad("Alguns valores não combinam com o tipo escolhido. Ajuste esses valores e tente de novo.")
+        }
+        _ => e.into(),
+    }
 }
 
 /// Pedaço "nome tipo [REFERENCES ...] [NOT NULL] [UNIQUE]" de uma coluna nova.
@@ -50,6 +91,14 @@ async fn col_sql(db: &PgPool, c: &NewCol) -> ApiResult<(String, String)> {
         kind_sql(&c.kind).ok_or(bad("Tipo de coluna desconhecido."))?.to_owned()
     };
     let mut sql = format!("{} {ty}", ident(&name));
+    if let Some(d) = &c.default {
+        if c.kind == "ligação" && d.mode != "nenhum" {
+            return Err(bad("Ligação não tem valor padrão."));
+        }
+        if let Some(expr) = default_sql(d, &ty)? {
+            sql += &format!(" DEFAULT {expr}");
+        }
+    }
     if c.required {
         sql += " NOT NULL";
     }
@@ -121,7 +170,11 @@ pub async fn add_column(user: User, State(db): State<PgPool>, Path(table): Path<
     user.admin()?;
     columns(&db, Some(&table)).await?;
     let (name, sql) = col_sql(&db, &c).await?;
-    ddl(&db, &format!("ALTER TABLE public.{} ADD COLUMN {sql}", ident(&table))).await?;
+    sqlx::query(&format!("ALTER TABLE public.{} ADD COLUMN {sql}", ident(&table)))
+        .persistent(false)
+        .execute(&db)
+        .await
+        .map_err(cast_error)?;
     log(&db, user.id, "add_column", json!({ "table": table, "column": name })).await?;
     Ok(Json(json!({ "name": name })))
 }
@@ -138,6 +191,9 @@ fn editable<'a>(cols: &'a [Col], name: &str) -> ApiResult<&'a Col> {
 pub struct ColChange {
     name: Option<String>,
     required: Option<bool>,
+    /// Tipo novo, na lista da tela (texto, número, ...).
+    kind: Option<String>,
+    default: Option<DefaultSpec>,
 }
 
 pub async fn change_column(
@@ -150,7 +206,48 @@ pub async fn change_column(
     let cols = columns(&db, Some(&table)).await?;
     let col = editable(&cols, &column)?;
     let t = ident(&table);
+    let c = ident(&col.name);
     let mut tx = db.begin().await?;
+    // Tipo primeiro: o padrão antigo pode não servir no tipo novo, então sai e volta se foi pedido.
+    let mut ty = col.ty.clone();
+    let mut changed_type = false;
+    if let Some(kind) = &b.kind {
+        let new_ty = kind_sql(kind).ok_or(bad("Tipo de coluna desconhecido."))?;
+        let same = crate::catalog::label(&col.ty, &col.typtype) == kind.as_str();
+        if !same {
+            if col.link.is_some() {
+                return Err(bad("Coluna de ligação não muda de tipo. Apague e crie outra."));
+            }
+            if col.default.as_deref() == Some("auto") {
+                return Err(bad("Esta coluna numera sozinha e não muda de tipo."));
+            }
+            sqlx::query(&format!("ALTER TABLE public.{t} ALTER COLUMN {c} DROP DEFAULT"))
+                .persistent(false)
+                .execute(&mut *tx)
+                .await?;
+            // Passa por texto: funciona de qualquer tipo para qualquer tipo, e falha só se algum valor não converter.
+            sqlx::query(&format!("ALTER TABLE public.{t} ALTER COLUMN {c} TYPE {new_ty} USING {c}::text::{new_ty}"))
+                .persistent(false)
+                .execute(&mut *tx)
+                .await
+                .map_err(cast_error)?;
+            ty = new_ty.to_owned();
+            changed_type = true;
+        }
+    }
+    if let Some(d) = &b.default {
+        if col.link.is_some() && d.mode != "nenhum" {
+            return Err(bad("Ligação não tem valor padrão."));
+        }
+        if col.default.as_deref() == Some("auto") {
+            return Err(bad("Esta coluna numera sozinha e não tem outro padrão."));
+        }
+        let sql = match default_sql(d, &ty)? {
+            Some(expr) => format!("ALTER TABLE public.{t} ALTER COLUMN {c} SET DEFAULT {expr}"),
+            None => format!("ALTER TABLE public.{t} ALTER COLUMN {c} DROP DEFAULT"),
+        };
+        sqlx::query(&sql).persistent(false).execute(&mut *tx).await.map_err(cast_error)?;
+    }
     if let Some(req) = b.required.filter(|r| *r != col.required) {
         let verb = if req { "SET" } else { "DROP" };
         sqlx::query(&format!("ALTER TABLE public.{t} ALTER COLUMN {} {verb} NOT NULL", ident(&col.name)))
@@ -170,7 +267,11 @@ pub async fn change_column(
         }
     }
     tx.commit().await?;
-    log(&db, user.id, "change_column", json!({ "table": table, "column": col.name, "renamed": final_name, "required": b.required })).await?;
+    let detail = json!({
+        "table": table, "column": col.name, "renamed": final_name, "required": b.required,
+        "type": changed_type.then_some(&b.kind), "default": b.default.as_ref().map(|d| &d.mode),
+    });
+    log(&db, user.id, "change_column", detail).await?;
     Ok(Json(json!({ "name": final_name })))
 }
 

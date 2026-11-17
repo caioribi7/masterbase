@@ -10,7 +10,8 @@
   let users = $state([]);
   let me = $state(null);
   let error = $state('');
-  let modal = $state(null); // 'new' | 'password' | { reset: user }
+  let modal = $state(null); // 'new' | 'password' | { link: { name, url, invite } }
+  let copied = $state(false);
   let formError = $state('');
   let busy = $state(false);
   let form = $state({});
@@ -52,6 +53,36 @@
       busy = false;
       err.status === 401 ? onAuthLost() : (formError = err.message);
     }
+  }
+
+  // Link de criar senha. O servidor devolve só o token; o endereço é o deste painel.
+  const linkFor = (token) => `${location.origin}/#/senha/${token}`;
+
+  async function newPerson(e) {
+    e.preventDefault();
+    busy = true;
+    formError = '';
+    try {
+      const r = await api('/users', { method: 'POST', body: form });
+      await load();
+      if (r.token) { copied = false; modal = { link: { name: form.name, url: linkFor(r.token), invite: true } }; }
+      else { modal = null; done = `${form.name} já pode entrar.`; }
+    } catch (err) {
+      busy = false;
+      err.status === 401 ? onAuthLost() : (formError = err.message);
+    }
+  }
+
+  async function passwordLink(u) {
+    try {
+      const r = await api(`/users/${u.id}/link`, { method: 'POST' });
+      copied = false;
+      modal = { link: { name: u.name, url: linkFor(r.token), invite: false } };
+    } catch (e) { fail(e); }
+  }
+
+  async function copyLink() {
+    try { await navigator.clipboard.writeText(modal.link.url); copied = true; } catch { copied = false; }
   }
 
   const change = (u, body) => api(`/users/${u.id}`, { method: 'PATCH', body }).then(load).catch(fail);
@@ -100,7 +131,7 @@
               <td>{u.active ? 'ativa' : 'desativada'}</td>
               <td class="end">
                 {#if u.id !== me}
-                  <button class="glass btn small" onclick={() => open({ reset: u }, { password: '' })}>Nova senha</button>
+                  {#if u.active}<button class="glass btn small" onclick={() => passwordLink(u)}>Link de senha</button>{/if}
                   <button class="glass btn small" class:btn-danger={u.active} onclick={() => change(u, { active: !u.active })}>{u.active ? 'Desativar' : 'Reativar'}</button>
                 {/if}
               </td>
@@ -109,7 +140,7 @@
         </tbody>
       </table>
     </div></div>
-    <p class="hint">Conta desativada não entra mais, mas continua no histórico da Atividade.</p>
+    <p class="hint">Esqueceu a senha? Gere um <strong>link de senha</strong> e mande para a pessoa: vale 24 horas, uma vez só, e encerra as sessões abertas dela. Conta desativada não entra mais, mas continua no histórico da Atividade.</p>
   {:else}
     <p class="hint">Seu papel é <strong>{roleLabel(session.user.role)}</strong>. Só administradores veem e mudam a lista de pessoas.</p>
   {/if}
@@ -117,15 +148,15 @@
 
 {#if modal === 'new'}
   <Modal title="Nova pessoa" onClose={() => (modal = null)} width={480}>
-    <form class="form" onsubmit={(e) => submit(e, () => api('/users', { method: 'POST', body: form }), `${form.name} já pode entrar.`)}>
+    <form class="form" onsubmit={newPerson}>
       <label class="stack"><span class="label">Nome</span>
         <!-- svelte-ignore a11y_autofocus -->
         <input class="field" bind:value={form.name} required autofocus /></label>
       <label class="stack"><span class="label">E-mail</span><input class="field" type="email" bind:value={form.email} required autocomplete="off" /></label>
-      <label class="stack"><span class="label">Senha inicial</span><input class="field" bind:value={form.password} minlength="10" required autocomplete="off" /></label>
+      <label class="stack"><span class="label">Senha inicial (opcional)</span><input class="field" bind:value={form.password} minlength="10" autocomplete="off" /></label>
       <label class="stack"><span class="label">Papel</span>
         <select class="field" bind:value={form.role}>{#each roles as [v, l]}<option value={v}>{l}</option>{/each}</select></label>
-      <p class="hint">Passe a senha para a pessoa por um canal seguro. Ela pode trocar depois, aqui mesmo.</p>
+      <p class="hint">Deixe a senha em branco para gerar um link de convite: a pessoa abre e cria a própria senha.</p>
       {#if formError}<p class="error" role="alert">{formError}</p>{/if}
       <div class="modal-actions">
         <button type="button" class="glass btn" onclick={() => (modal = null)}>Cancelar</button>
@@ -147,18 +178,17 @@
       </div>
     </form>
   </Modal>
-{:else if modal?.reset}
-  <Modal title="Nova senha para {modal.reset.name}" onClose={() => (modal = null)} width={440}>
-    <form class="form" onsubmit={(e) => submit(e, () => api(`/users/${modal.reset.id}`, { method: 'PATCH', body: { password: form.password } }), 'Senha trocada. As sessões dessa pessoa foram encerradas.')}>
-      <!-- svelte-ignore a11y_autofocus -->
-      <input class="field" bind:value={form.password} minlength="10" required autocomplete="off" aria-label="Senha nova" autofocus />
-      <p class="hint">A pessoa sai de todos os aparelhos e entra de novo com essa senha.</p>
-      {#if formError}<p class="error" role="alert">{formError}</p>{/if}
+{:else if modal?.link}
+  <Modal title={modal.link.invite ? `Convite para ${modal.link.name}` : `Link de senha para ${modal.link.name}`} onClose={() => (modal = null)} width={520}>
+    <div class="form">
+      <p class="hint">{modal.link.invite ? 'Mande este link para a pessoa criar a senha dela.' : 'Mande este link para a pessoa criar uma senha nova.'} Vale 24 horas e funciona uma vez só. Ele aparece só agora.</p>
+      <code class="code linkbox">{modal.link.url}</code>
+      {#if copied}<p class="ok" role="status">Link copiado.</p>{/if}
       <div class="modal-actions">
-        <button type="button" class="glass btn" onclick={() => (modal = null)}>Cancelar</button>
-        <button class="btn-primary" disabled={busy}>Salvar senha</button>
+        <button type="button" class="glass btn" onclick={() => (modal = null)}>Fechar</button>
+        <button type="button" class="btn-primary" onclick={copyLink}><Icon name="copy" size={15} stroke="#12133A" /> Copiar link</button>
       </div>
-    </form>
+    </div>
   </Modal>
 {/if}
 
@@ -172,5 +202,6 @@
   .end .btn { margin-left: 6px; }
   .ok { font-size: 13px; color: var(--lime); }
   .hint strong { color: var(--text); }
+  .linkbox { display: block; padding: 12px 14px; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; }
   @media (max-width: 1100px) { .roles { grid-template-columns: minmax(0, 1fr); } }
 </style>

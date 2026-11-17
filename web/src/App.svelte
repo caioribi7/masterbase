@@ -36,7 +36,10 @@
 
 <svelte:window onhashchange={() => (route = parseHash())} />
 
-{#if user === null}
+{#if route.page === 'senha' && route.arg}
+  <!-- Link de criar senha: abre mesmo com alguém logado neste navegador. -->
+  <Login token={route.arg} onDone={() => { location.hash = '#/inicio'; loadMe(); }} />
+{:else if user === null}
   <Login onDone={loadMe} />
 {:else if user}
   <Shell {user} {page} {crumb} onLogout={lost}>
@@ -50,7 +53,7 @@
       {:else if page === 'chaves'}<Keys onAuthLost={lost} />
       {:else if page === 'backups'}<Backups onAuthLost={lost} />
       {:else if page === 'sql'}<SqlEditor onAuthLost={lost} />
-      {:else if page === 'configuracoes'}<Settings onAuthLost={lost} onProfile={loadMe} />
+      {:else if page === 'configuracoes'}<Settings onAuthLost={lost} onProfile={loadMe} onLogout={lost} />
       {:else}<Activity arg={route.arg} onAuthLost={lost} />{/if}
     {/key}
   </Shell>

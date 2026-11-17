@@ -147,7 +147,7 @@ check 403 "leitor não cria tabela"            POST /schema '{"name":"z","column
 check 403 "leitor não vê pessoas"             GET  /users
 check 403 "leitor não roda SQL"               POST /sql '{"sql":"SELECT 1","read_only":true}'
 check 403 "leitor não vê configurações"       GET  /settings
-check 200 "leitor troca a própria ! grep -q 'postgres://|postgresql://' /tmp/mb-body"      POST /password "{\"current\":\"$PW\",\"new\":\"${PW}2\"}"
+check 200 "leitor troca a própria senha"      POST /password "{\"current\":\"$PW\",\"new\":\"${PW}2\"}"
 check 200 "sair (leitor)"                     POST /logout
 check 200 "entrar como editor"                POST /login "{\"email\":\"edu@smoke.test\",\"password\":\"$PW\"}"
 check 200 "editor edita"                      PATCH /tables/clientes/rows '{"pk":1,"column":"cidade","value":"Curitiba"}'
@@ -163,8 +163,66 @@ check 401 "desativado não entra"              POST /login "{\"email\":\"edu@smo
 check 200 "entrar de novo como admin" POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"
 check 200 "sair"                              POST /logout
 check 401 "sessão encerrada"                  GET  /me
-check 401 "! grep -q 'postgres://|postgresql://' /tmp/mb-body errada"                      POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"errada-errada\"}"
+check 401 "senha errada"                      POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"errada-errada\"}"
 check 200 "entrar"                            POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"
+
+# ---- sessões, links de senha, editor SQL restrito ----
+hdr=$(curl -s -D - -o /dev/null -b "$JAR" "$BASE/me" | tr -d '\r' | grep -i '^cache-control:')
+[ "$hdr" = "cache-control: no-store" ] && echo "ok   API sem cache" || { echo "FALHA cache-control: '$hdr'"; fails=$((fails+1)); }
+check 200 "lista sessões"                     GET  /sessions; has '"current":true'
+check 400 "SQL não lê metadados"              POST /sql '{"sql":"SELECT * FROM masterbase.users"}'; has 'permissão'
+check 400 "SQL não cria tabela"               POST /sql '{"sql":"CREATE TABLE x (a int)"}'
+check 400 "SQL não cria função de gatilho"    POST /sql '{"sql":"CREATE FUNCTION public.f() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NEW; END$$"}'
+check 400 "SQL não vira outro papel"          POST /sql '{"sql":"SET ROLE postgres"}'
+check 200 "configurações mostram editor"      GET  /settings; has '"sql_editor":true'
+
+check 200 "convite sem senha"                 POST /users '{"name":"Gil","email":"gil@smoke.test","role":"leitor"}'; has '"token":"'
+TOKEN=$(sed -E 's/.*"token":"([0-9a-f]+)".*/\1/' /tmp/mb-body)
+check 401 "convidado sem senha não entra"     POST /login '{"email":"gil@smoke.test","password":""}'
+check 200 "link do convite vale"              POST /reset/check "{\"token\":\"$TOKEN\"}"; has 'gil@smoke.test'
+check 404 "link inventado"                    POST /reset/check '{"token":"00ff"}'
+check 400 "link com senha curta"              POST /reset "{\"token\":\"$TOKEN\",\"password\":\"123\"}"
+check 200 "criar senha pelo link"             POST /reset "{\"token\":\"$TOKEN\",\"password\":\"$PW\"}"
+check 200 "já entra com a senha nova"         GET  /me; has 'gil@smoke.test'
+check 404 "link não vale duas vezes"          POST /reset "{\"token\":\"$TOKEN\",\"password\":\"$PW\"}"
+check 200 "entrar como admin"                 POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"
+check 200 "link para quem esqueceu a senha"   POST /users/3/link; has '"token":"'
+TOKEN=$(sed -E 's/.*"token":"([0-9a-f]+)".*/\1/' /tmp/mb-body)
+check 404 "link de pessoa que não existe"     POST /users/999/link
+check 200 "trocar senha pelo link"            POST /reset "{\"token\":\"$TOKEN\",\"password\":\"${PW}3\"}";
+check 200 "entrar com a senha do link"        POST /login "{\"email\":\"lia@smoke.test\",\"password\":\"${PW}3\"}"
+check 403 "leitor não gera link"              POST /users/1/link
+check 200 "entrar como admin"                 POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"
+
+check 200 "nome e duração da sessão"          PATCH /settings '{"name":"Smoke","session_days":3}'
+check 400 "sessão de 0 dias"                  PATCH /settings '{"session_days":0}'
+check 200 "nome aparece no me"                GET  /me; has '"project":"Smoke"'
+check 200 "nome aparece no login"             GET  /setup; has '"name":"Smoke"'
+
+# ---- colunas: valor padrão e tipo ----
+check 200 "coluna com padrão (com aspas)"     POST /schema/clientes/columns '{"name":"status","kind":"texto","default":{"mode":"fixo","value":"d'"'"'água"}}'
+check 200 "estrutura mostra o padrão"         GET  /schema; has "d'água"
+check 200 "linha nova usa o padrão"           POST /tables/clientes/rows '{"values":{"nome":"Padrão SA"}}'
+check 200 "coluna de data e hora com agora"   POST /schema/clientes/columns '{"name":"visto","kind":"data e hora","default":{"mode":"agora"}}'
+check 400 "agora em coluna de texto"          PATCH /schema/clientes/columns/status '{"default":{"mode":"agora"}}'
+check 200 "coluna de código"                  POST /schema/clientes/columns '{"name":"codigo","kind":"texto"}'
+check 200 "texto vira número"                 PATCH /schema/clientes/columns/codigo '{"kind":"número","default":{"mode":"fixo","value":"0"}}'
+check 400 "padrão que não é número"           PATCH /schema/clientes/columns/codigo '{"default":{"mode":"fixo","value":"abc"}}'
+check 400 "tipo que não converte"             PATCH /schema/clientes/columns/nome '{"kind":"número"}'; has 'não combinam'
+check 200 "nome continua texto"               GET  /schema; has '"label":"texto","link":null,"name":"nome"'
+check 400 "ligação não muda de tipo"          PATCH /schema/pedidos/columns/cliente_id '{"kind":"texto"}'
+check 200 "tirar padrão"                      PATCH /schema/clientes/columns/status '{"default":{"mode":"nenhum"}}'
+check 400 "modo de padrão inventado"          PATCH /schema/clientes/columns/status '{"default":{"mode":"now(); drop"}}'
+
+# ---- backups: quantos guardar ----
+check 200 "guardar 3 diários e 0 semanais"    PATCH /backups/settings '{"keep_daily":3,"keep_weekly":0}'; has '"keep_daily":3'
+check 400 "guardar 0 diários"                 PATCH /backups/settings '{"keep_daily":0}'
+check 200 "cópia externa desligada"           GET  /backups/settings; has '"copy":{"dir":null'
+
+check 200 "sair dos outros aparelhos"         DELETE /sessions; has '"ended"'
+check 200 "sessão atual continua"             GET  /me
+for _ in 1 2 3 4 5; do curl -s -o /dev/null -b "$JAR" -H 'content-type: application/json' -d '{"password":"errada"}' "$BASE/backups/key"; done
+check 429 "chave trava após 5 senhas erradas" POST /backups/key "{\"password\":\"$PW\"}"
 
 code=$(curl -s -o /tmp/mb-body -w '%{http_code}' "${BASE%/api}/llms.txt")
 [ "$code" = 200 ] && grep -q 'Authorization: Bearer' /tmp/mb-body && echo "ok   documentação para IA em /llms.txt" || { echo "FALHA /llms.txt: $code"; fails=$((fails+1)); }

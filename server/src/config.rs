@@ -14,6 +14,7 @@ pub fn help() {
          masterbase servico      deixa rodando sozinho ao ligar o servidor (Linux, com sudo)\n\
          masterbase chave-backup mostra a chave que abre os backups (guarde fora do servidor)\n\
          masterbase recuperar F  restaura o backup F no banco configurado, mesmo em outra máquina\n\
+         masterbase senha EMAIL  cria um link para EMAIL definir uma senha nova (esqueceu a senha)\n\
          masterbase versao       mostra a versão\n\n\
          Configuração em {}",
         env!("CARGO_PKG_VERSION"),
@@ -236,6 +237,36 @@ pub fn recover(file: Option<String>) {
                 eprintln!("Falhou, o banco não mudou: {}", e.text());
                 std::process::exit(1);
             }
+        }
+    }
+}
+
+/// `masterbase senha EMAIL`: para quando ninguém que administra consegue entrar.
+/// Quem tem acesso ao servidor já tem acesso ao banco, então isto não abre nada novo.
+pub fn password_link(email: Option<String>) {
+    let Some(email) = email else {
+        eprintln!("uso: masterbase senha EMAIL");
+        std::process::exit(2);
+    };
+    load();
+    let Ok(url) = std::env::var("DATABASE_URL") else {
+        eprintln!("sem banco configurado: rode `masterbase configurar` antes");
+        std::process::exit(1);
+    };
+    let addr = std::env::var("MB_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into()).replace("0.0.0.0", "127.0.0.1");
+    let result = tokio::runtime::Runtime::new().expect("runtime").block_on(async {
+        let db = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&url).await.map_err(|e| e.to_string())?;
+        crate::auth::cli_link(&db, &email).await
+    });
+    match result {
+        Ok(token) => {
+            println!("Abra este link no navegador em até 24 horas (troque o endereço se usa um domínio):\n");
+            println!("    http://{addr}/#/senha/{token}\n");
+            println!("Vale uma vez só. Ao criar a senha nova, as sessões abertas dessa conta são encerradas.");
+        }
+        Err(e) => {
+            eprintln!("Não deu: {e}");
+            std::process::exit(1);
         }
     }
 }

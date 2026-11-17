@@ -15,12 +15,24 @@
   let formError = $state('');
 
   // Formulários
-  const blankCol = () => ({ name: '', kind: 'texto', link: '', required: false, unique: false });
+  const blankCol = () => ({ name: '', kind: 'texto', link: '', required: false, unique: false, def: 'nenhum', defValue: '' });
   let newTable = $state({ name: '', columns: [blankCol()] });
   let newCol = $state(blankCol());
   let renameTo = $state('');
   let dropConfirm = $state('');
-  let editingCol = $state(null); // { from, name }
+  let editCol = $state(null); // { col, name, kind, required, def, defValue }
+
+  // Valor padrão: o que cada tipo aceita além de "nenhum" e "fixo".
+  const timeKinds = ['data', 'data e hora'];
+  const defOptions = (kind) => [
+    ['nenhum', 'nenhum'],
+    ['fixo', 'um valor fixo'],
+    ...(timeKinds.includes(kind) ? [['agora', kind === 'data' ? 'a data de hoje' : 'a hora em que a linha é criada']] : []),
+    ...(kind === 'id único' ? [['id novo', 'um id novo para cada linha']] : []),
+  ];
+  // Agora/hoje mudam de nome conforme o tipo; o servidor usa "hoje" para data e "agora" para data e hora.
+  const defMode = (kind, def) => (def === 'agora' && kind === 'data' ? 'hoje' : def);
+  const defText = (d) => (!d || d.mode === 'auto' ? '' : d.mode === 'fixo' ? `padrão: ${d.value}` : d.mode === 'outro' ? 'padrão: fórmula' : `padrão: ${d.mode}`);
 
   const current = $derived(schema?.find((t) => t.name === arg) ?? schema?.[0] ?? null);
   const others = $derived(schema?.map((t) => t.name) ?? []);
@@ -48,7 +60,11 @@
     modal = 'create';
   }
 
-  const clean = (c) => ({ name: c.name, kind: c.kind, required: c.required, unique: c.unique, link: c.kind === 'ligação' ? c.link || null : null });
+  const clean = (c) => ({
+    name: c.name, kind: c.kind, required: c.required, unique: c.unique,
+    link: c.kind === 'ligação' ? c.link || null : null,
+    default: c.kind === 'ligação' || !c.def || c.def === 'nenhum' ? null : { mode: defMode(c.kind, c.def), value: c.defValue ?? '' },
+  });
 
   // Uma ação de formulário: chama a API, recarrega e fecha.
   async function act(fn) {
@@ -112,15 +128,28 @@
     act(() => api(colUrl(dropCol.name), { method: 'DELETE' }));
   }
 
-  function saveColName(e) {
-    e?.preventDefault();
-    const { from, name } = editingCol;
-    editingCol = null;
-    if (name.trim() && name !== from) quick(() => api(colUrl(from), { method: 'PATCH', body: { name } }));
+  function openEdit(c) {
+    const d = c.default;
+    const def = !d ? 'nenhum' : d.mode === 'hoje' ? 'agora' : ['fixo', 'agora', 'id novo'].includes(d.mode) ? d.mode : 'outro';
+    editCol = { col: c, name: c.name, kind: kinds.includes(c.label) ? c.label : '', required: c.required, def, defValue: d?.mode === 'fixo' ? d.value : '' };
+    modal = 'editcol';
   }
 
-  function colKey(e) {
-    if (e.key === 'Escape') editingCol = null;
+  function saveCol(e) {
+    e.preventDefault();
+    const { col, name, kind, required, def, defValue } = editCol;
+    const body = {};
+    if (name.trim() !== col.name) body.name = name;
+    if (required !== col.required) body.required = required;
+    const typeChanged = kind && kind !== col.label;
+    if (typeChanged) body.kind = kind;
+    // Tipo mudou: o padrão antigo cai; manda o escolhido de novo. Senão, só se mudou.
+    const before = col.default ? (col.default.mode === 'hoje' ? 'agora' : col.default.mode) : 'nenhum';
+    if (def !== 'outro' && (typeChanged || def !== before || (def === 'fixo' && defValue !== col.default?.value))) {
+      body.default = { mode: defMode(kind || col.label, def), value: defValue };
+    }
+    if (!Object.keys(body).length) return close();
+    act(() => api(colUrl(col.name), { method: 'PATCH', body }));
   }
 </script>
 
@@ -156,15 +185,7 @@
       {#each current.columns as c (c.name)}
         <div class="col-row">
           <span class="col-name">
-            {#if editingCol?.from === c.name}
-              <form onsubmit={saveColName}>
-                <!-- svelte-ignore a11y_autofocus -->
-                <input class="field small" bind:value={editingCol.name} onkeydown={colKey} onblur={saveColName} autofocus aria-label="Novo nome" />
-              </form>
-            {:else}
-              <strong>{c.name}</strong>
-              {#if !c.pk && isAdmin()}<button class="icon-btn" title="Renomear" aria-label="Renomear {c.name}" onclick={() => (editingCol = { from: c.name, name: c.name })}><Icon name="pencil" size={14} /></button>{/if}
-            {/if}
+            <strong>{c.name}</strong>
           </span>
           <span>
             {#if c.link}<a class="badge" href={href('estrutura', c.link)}><Icon name="link" size={12} /> {c.link}</a>
@@ -176,9 +197,11 @@
             {:else}
               <label class="check-label"><input type="checkbox" checked={c.required} disabled={!isAdmin()} onchange={() => setRequired(c)} /> obrigatório</label>
               {#if c.unique}<span class="badge">sem repetidos</span>{/if}
+              {#if defText(c.default)}<span class="badge soft" title={c.default.value ?? ''}>{defText(c.default)}</span>{/if}
             {/if}
           </span>
           <span class="end">
+            {#if !c.pk && isAdmin()}<button class="icon-btn" title="Editar coluna" aria-label="Editar {c.name}" onclick={() => openEdit(c)}><Icon name="pencil" size={15} /></button>{/if}
             {#if !c.pk && isAdmin()}<button class="icon-btn danger" title="Apagar coluna" aria-label="Apagar {c.name}" onclick={() => { dropCol = c; modal = 'dropcol'; }}><Icon name="trash" size={15} /></button>{/if}
           </span>
         </div>
@@ -215,6 +238,23 @@
   </div>
 {/snippet}
 
+{#snippet defaultFields(c, kind)}
+  <div class="def-row">
+    <label class="stack"><span class="label">Valor padrão</span>
+      <select class="field" bind:value={c.def}>
+        {#each defOptions(kind) as [v, l]}<option value={v}>{l}</option>{/each}
+      </select></label>
+    {#if c.def === 'fixo'}
+      <label class="stack grow"><span class="label">Valor</span>
+        {#if kind === 'sim/não'}
+          <select class="field" bind:value={c.defValue}><option value="true">sim</option><option value="false">não</option></select>
+        {:else}
+          <input class="field" bind:value={c.defValue} placeholder={kind === 'data' ? 'aaaa-mm-dd' : kind === 'número' || kind === 'decimal' ? '0' : ''} />
+        {/if}</label>
+    {/if}
+  </div>
+{/snippet}
+
 {#if modal === 'create'}
   <Modal title="Nova tabela" onClose={close} width={760}>
     <form class="form" onsubmit={createTable}>
@@ -239,11 +279,48 @@
   <Modal title="Nova coluna em {current.name}" onClose={close} width={760}>
     <form class="form" onsubmit={addColumn}>
       {@render colFields(newCol, null)}
-      <p class="hint">Linhas que já existem ficam com a coluna vazia. Por isso "obrigatório" só funciona em tabela vazia.</p>
+      {#if newCol.kind !== 'ligação'}
+        {@render defaultFields(newCol, newCol.kind)}
+      {/if}
+      <p class="hint">Linhas que já existem ficam com o valor padrão, ou vazias se não houver. "Obrigatório" sem padrão só funciona em tabela vazia.</p>
       {#if formError}<p class="error" role="alert">{formError}</p>{/if}
       <div class="modal-actions">
         <button type="button" class="glass btn" onclick={close}>Cancelar</button>
         <button class="btn-primary" disabled={busy}>Criar coluna</button>
+      </div>
+    </form>
+  </Modal>
+{:else if modal === 'editcol'}
+  <Modal title="Editar coluna" onClose={close} width={520}>
+    <form class="form" onsubmit={saveCol}>
+      <label class="stack"><span class="label">Nome</span>
+        <!-- svelte-ignore a11y_autofocus -->
+        <input class="field" bind:value={editCol.name} required autofocus /></label>
+      <label class="stack"><span class="label">Tipo</span>
+        {#if editCol.col.link}
+          <span class="hint"><Icon name="link" size={13} /> Ligação com {editCol.col.link}. Para mudar, apague e crie outra coluna.</span>
+        {:else}
+          <select class="field" bind:value={editCol.kind}>
+            {#if !editCol.kind}<option value="">{editCol.col.label} (atual)</option>{/if}
+            {#each kinds.filter((k) => k !== 'ligação') as k}<option value={k}>{k}</option>{/each}
+          </select>
+          {#if editCol.kind && editCol.kind !== editCol.col.label}
+            <span class="hint">Os valores atuais são convertidos. Se algum não servir no tipo novo, nada muda e você vê o aviso.</span>
+          {/if}
+        {/if}
+      </label>
+      {#if !editCol.col.link}
+        {#if editCol.def === 'outro'}
+          <p class="hint">Valor padrão: uma fórmula feita fora do Masterbase ({editCol.col.default.value}). <button type="button" class="linkish" onclick={() => (editCol.def = 'nenhum')}>Trocar</button></p>
+        {:else}
+          {@render defaultFields(editCol, editCol.kind || editCol.col.label)}
+        {/if}
+      {/if}
+      <label class="check-label"><input type="checkbox" bind:checked={editCol.required} /> obrigatório (não aceita ficar vazio)</label>
+      {#if formError}<p class="error" role="alert">{formError}</p>{/if}
+      <div class="modal-actions">
+        <button type="button" class="glass btn" onclick={close}>Cancelar</button>
+        <button class="btn-primary" disabled={busy}>Salvar</button>
       </div>
     </form>
   </Modal>
@@ -288,20 +365,22 @@
 {/if}
 
 <style>
-  .cols-head, .col-row { display: grid; grid-template-columns: minmax(160px, 1.3fr) minmax(120px, 1fr) minmax(200px, 1.4fr) 44px; align-items: center; gap: 16px; padding: 0 20px; }
+  .cols-head, .col-row { display: grid; grid-template-columns: minmax(160px, 1.3fr) minmax(120px, 1fr) minmax(200px, 1.4fr) 84px; align-items: center; gap: 16px; padding: 0 20px; }
   .cols-head { height: 46px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--lavender-3); border-bottom: 1px solid var(--line-2); }
   .col-row { min-height: 56px; border-bottom: 1px solid #1A1C46; font-size: 14px; }
   .col-row:last-child { border-bottom: 0; }
   .col-row:hover { background: rgba(154,160,224,.04); }
   .col-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .col-name strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .col-name .icon-btn { opacity: 0; }
-  .col-row:hover .col-name .icon-btn, .col-name .icon-btn:focus-visible { opacity: 1; }
-  .col-name form { flex: 1; }
+  .badge.soft { color: var(--lavender-2); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .def-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .def-row > .stack { min-width: 200px; }
+  .def-row .grow { flex: 1; }
+  .linkish { background: none; border: 0; padding: 0; color: var(--text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: 13px; }
   a.badge { text-decoration: none; }
   a.badge:hover { border-color: rgba(154,160,224,.6); }
   .rules { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .end { display: flex; justify-content: flex-end; }
+  .end { display: flex; justify-content: flex-end; gap: 4px; }
   .danger:hover:not(:disabled) { color: var(--err); border-color: rgba(255,122,138,.4); }
 
   .form { display: flex; flex-direction: column; gap: 16px; }

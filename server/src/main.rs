@@ -54,6 +54,7 @@ fn main() {
         Some("ajuda" | "--help" | "-h") => return config::help(),
         Some("chave-backup") => return config::show_backup_key(),
         Some("recuperar") => return config::recover(std::env::args().nth(2)),
+        Some("senha") => return config::password_link(std::env::args().nth(2)),
         Some(other) => {
             eprintln!("comando desconhecido: {other}
 ");
@@ -91,6 +92,7 @@ async fn serve() {
         .expect("sem conexão com o Postgres");
     sqlx::query("CREATE SCHEMA IF NOT EXISTS masterbase").execute(&db).await.expect("sem permissão para criar schema");
     sqlx::migrate!().run(&db).await.expect("migração falhou");
+    sql::connect(&db).await;
     tokio::spawn(backup::scheduler(db.clone()));
 
     let api = Router::new()
@@ -99,7 +101,11 @@ async fn serve() {
         .route("/login", post(auth::login))
         .route("/logout", post(auth::logout))
         .route("/me", get(auth::me).patch(sql::update_me))
-        .route("/settings", get(sql::settings))
+        .route("/settings", get(sql::settings).patch(sql::change_settings))
+        .route("/sessions", get(auth::list_sessions).delete(auth::end_other_sessions))
+        .route("/sessions/{id}", delete(auth::end_session))
+        .route("/reset/check", post(auth::reset_check))
+        .route("/reset", post(auth::reset_password))
         .route("/sql", post(sql::run))
         .route("/overview", get(activity::overview))
         .route("/activity", get(activity::list))
@@ -112,6 +118,7 @@ async fn serve() {
         .route("/queries/{id}", delete(query::delete_saved))
         .route("/users", get(access::list_users).post(access::create_user))
         .route("/users/{id}", patch(access::change_user))
+        .route("/users/{id}/link", post(access::password_link))
         .route("/password", post(access::change_password))
         .route("/keys", get(access::list_keys).post(access::create_key))
         .route("/keys/{id}", delete(access::delete_key))
@@ -123,7 +130,9 @@ async fn serve() {
         .route("/schema", get(schema::get_schema).post(schema::create_table))
         .route("/schema/{table}", patch(schema::rename_table).delete(schema::drop_table))
         .route("/schema/{table}/columns", post(schema::add_column))
-        .route("/schema/{table}/columns/{column}", patch(schema::change_column).delete(schema::drop_column));
+        .route("/schema/{table}/columns/{column}", patch(schema::change_column).delete(schema::drop_column))
+        // Respostas da API têm dados da conta: nada de cache no navegador nem em proxy.
+        .layer(header_layer(header::CACHE_CONTROL, "no-store"));
 
     // MB_WEB_DIR serve a tela do disco (desenvolvimento). Sem ela, usa a que está dentro do binário.
     let app = Router::new()
@@ -153,7 +162,7 @@ async fn serve() {
     }
     println!("Ctrl+C para parar. Cada pedido e cada mudança aparecem aqui embaixo (MB_LOG=off desliga).");
     config::open_browser(&format!("http://{local}"));
-    axum::serve(listener, app)
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
         .with_graceful_shutdown(async { tokio::signal::ctrl_c().await.ok(); })
         .await
         .expect("servidor caiu");

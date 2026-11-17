@@ -145,7 +145,7 @@ mod tests {
     use super::*;
 
     fn col(name: &str, ty: &str) -> Col {
-        Col { table: "t".into(), name: name.into(), ty: ty.into(), typtype: "b".into(), pk: false, required: false, unique: false, link: None }
+        Col { table: "t".into(), name: name.into(), ty: ty.into(), typtype: "b".into(), pk: false, required: false, unique: false, link: None, default: None }
     }
 
     fn spec(filters: Vec<Filter>) -> Spec {

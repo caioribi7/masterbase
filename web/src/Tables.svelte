@@ -21,6 +21,8 @@
   let adding = $state(null); // { col: value }
   let confirmDelete = $state(false);
   let error = $state('');
+  let rowForm = $state(null); // celular: { index (null = linha nova), values, busy, error }
+  const phone = () => matchMedia('(max-width: 700px)').matches;
 
   const current = $derived(arg ?? tables[0]?.name ?? null);
   const pk = $derived(data?.columns.find((c) => c.pk)?.name);
@@ -129,6 +131,52 @@
     }
   }
 
+  const asText = (v) => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+
+  // Nome da linha: primeira coluna que não é a chave (ex.: nome do cliente).
+  function rowTitle(row) {
+    const head = data.columns.find((c) => !c.pk);
+    return head && row[head.name] != null ? show(row[head.name], head) : `Linha ${row[pk]}`;
+  }
+
+  function openRow(i) {
+    const cols = data.columns.filter((c) => !c.pk);
+    const row = i == null ? null : data.rows[i];
+    rowForm = { index: i, values: Object.fromEntries(cols.map((c) => [c.name, row ? asText(row[c.name]) : ''])), busy: false, error: '' };
+  }
+
+  function newRow() {
+    if (phone()) return openRow(null);
+    adding = Object.fromEntries(data.columns.filter((c) => !c.pk).map((c) => [c.name, '']));
+  }
+
+  // Linha nova: um POST. Linha existente: um PATCH por campo que mudou.
+  async function saveRow(e) {
+    e.preventDefault();
+    rowForm.busy = true;
+    rowForm.error = '';
+    const url = `/tables/${encodeURIComponent(current)}/rows`;
+    try {
+      if (rowForm.index == null) {
+        const values = Object.fromEntries(Object.entries(rowForm.values).filter(([, v]) => v !== ''));
+        await api(url, { method: 'POST', body: { values } });
+        await loadTables();
+      } else {
+        const row = data.rows[rowForm.index];
+        for (const [col, v] of Object.entries(rowForm.values)) {
+          if (v === asText(row[col])) continue;
+          data.rows[rowForm.index] = await api(url, { method: 'PATCH', body: { pk: row[pk], column: col, value: v === '' ? null : v } });
+        }
+      }
+      rowForm = null;
+      await load();
+    } catch (err) {
+      if (err.status === 401) return onAuthLost();
+      rowForm.busy = false;
+      rowForm.error = err.message;
+    }
+  }
+
   async function deleteSelected() {
     try {
       await api(`/tables/${encodeURIComponent(current)}/rows`, { method: 'DELETE', body: { pks: [...selected] } });
@@ -218,7 +266,7 @@
           <input type="file" accept=".csv,text/csv" hidden bind:this={fileInput} onchange={importCsv} />
         {/if}
         {#if pk && canEdit()}
-          <button class="btn-primary" onclick={() => (adding = Object.fromEntries(data.columns.filter((c) => !c.pk).map((c) => [c.name, ''])))}>
+          <button class="btn-primary" onclick={newRow}>
             <Icon name="plus" size={14} stroke="#12133A" weight={2.6} /> Nova linha
           </button>
         {/if}
@@ -259,6 +307,35 @@
       {#if error}<span class="error" role="alert">{error}</span>{/if}
       {#if notice}<span class="notice" role="status">{notice}</span>{/if}
       <span class="count">{n(data.total)} {data.total === 1 ? 'linha' : 'linhas'}</span>
+    </div>
+
+    <!-- Celular: uma ficha por linha. Toque para ver e editar tudo. -->
+    <div class="cards">
+      {#each data.rows as row, i}
+        {@const on = pk && selected.has(String(row[pk]))}
+        {@const [head, ...rest] = data.columns.filter((c) => !c.pk)}
+        <div class="card-edge" class:sel={on}>
+          <div class="card">
+            {#if pk && canEdit()}<input type="checkbox" class="card-check" checked={on} onchange={() => toggleRow(row)} aria-label="Marcar linha" />{/if}
+            <button class="card-body" onclick={() => openRow(i)} disabled={!pk || !canEdit()} aria-label="Abrir linha {pk ? row[pk] : i + 1}">
+              <span class="card-title">{head ? show(row[head.name], head) : row[pk]}</span>
+              {#each rest.slice(0, 4) as c}
+                <span class="card-kv"><span>{c.name}</span><strong class:dim={row[c.name] == null}>{show(row[c.name], c)}</strong></span>
+              {/each}
+              {#if pk}<span class="card-id mono">#{row[pk]}</span>{/if}
+            </button>
+          </div>
+        </div>
+      {:else}
+        <p class="none">{filter ? 'Nada bate com esse filtro.' : 'Tabela vazia. Use "Nova linha" para começar.'}</p>
+      {/each}
+      <div class="cards-foot">
+        <span>Página {data.page} de {data.pages}</span>
+        <span class="pager">
+          <button class="glass sq" disabled={page <= 1} aria-label="Página anterior" onclick={() => { page--; load(); }}><Icon name="left" size={14} stroke="#C9CCEB" /></button>
+          <button class="glass sq" disabled={page >= data.pages} aria-label="Próxima página" onclick={() => { page++; load(); }}><Icon name="right" size={14} stroke="#C9CCEB" /></button>
+        </span>
+      </div>
     </div>
 
     <div class="edge">
@@ -338,6 +415,31 @@
   <section class="content"><p class="error" role="alert">{error}</p></section>
 {/if}
 
+{#if rowForm}
+  <Modal title={rowForm.index == null ? `Nova linha em ${current}` : rowTitle(data.rows[rowForm.index])} onClose={() => (rowForm = null)} width={520}>
+    <form class="form" onsubmit={saveRow}>
+      {#each data.columns.filter((c) => !c.pk) as c}
+        <label class="stack">
+          <span class="label">{c.name}{c.required ? ' *' : ''} <small class="mono">{c.link ? `id em ${c.link}` : c.label}</small></span>
+          {#if c.label === 'sim/não'}
+            <select class="field" bind:value={rowForm.values[c.name]}><option value="">vazio</option><option value="true">Sim</option><option value="false">Não</option></select>
+          {:else}
+            <input class="field" bind:value={rowForm.values[c.name]}
+              type={c.label === 'data' ? 'date' : 'text'}
+              inputmode={['número', 'decimal'].includes(c.label) || c.link ? 'decimal' : c.label === 'e-mail' ? 'email' : undefined} />
+          {/if}
+        </label>
+      {/each}
+      <p class="hint">Campo vazio usa o valor padrão. * é obrigatório.</p>
+      {#if rowForm.error}<p class="error" role="alert">{rowForm.error}</p>{/if}
+      <div class="modal-actions">
+        <button type="button" class="glass btn" onclick={() => (rowForm = null)}>Cancelar</button>
+        <button class="btn-primary" disabled={rowForm.busy}>Salvar</button>
+      </div>
+    </form>
+  </Modal>
+{/if}
+
 {#if confirmDelete}
   <Modal title="Apagar linhas" onClose={() => (confirmDelete = false)} width={440}>
     <p class="msg">Apagar {selected.size} {selected.size === 1 ? 'linha' : 'linhas'} de <strong>{current}</strong>? Não dá para desfazer.</p>
@@ -385,6 +487,32 @@
   .pager { display: flex; align-items: center; gap: 10px; color: var(--lavender); white-space: nowrap; }
   .sq { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; }
   .sq:disabled { opacity: .4; cursor: default; }
+
+  .form { display: flex; flex-direction: column; gap: 14px; }
+  .stack { display: flex; flex-direction: column; gap: 6px; }
+  .stack small { font-size: 10px; color: var(--lavender-3); margin-left: 6px; text-transform: none; letter-spacing: 0; }
+  .hint { font-size: 13px; color: var(--lavender-2); }
+
+  /* Fichas: só no celular. */
+  .cards { display: none; flex-direction: column; gap: 10px; }
+  .card-edge { padding: 1px; border-radius: 16px; background: var(--edge); }
+  .card-edge.sel { background: linear-gradient(135deg, rgba(230,255,0,.6), rgba(154,160,224,.2)); }
+  .card { position: relative; border-radius: 15px; background: linear-gradient(180deg, #17194A 0%, #11123A 100%); box-shadow: var(--inner); }
+  .card-check { position: absolute; top: 16px; right: 16px; width: 20px; height: 20px; }
+  .card-body { width: 100%; padding: 14px 52px 14px 16px; border: 0; background: none; color: inherit; text-align: left; display: flex; flex-direction: column; gap: 6px; font: inherit; }
+  .card-title { font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card-kv { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+  .card-kv span { color: var(--lavender-2); flex-shrink: 0; }
+  .card-kv strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card-id { font-size: 11px; color: var(--lavender-3); }
+  .cards .none { padding: 32px 0; text-align: center; color: var(--lavender-2); }
+  .cards-foot { display: flex; align-items: center; justify-content: space-between; padding: 4px 2px 8px; font-size: 13px; color: var(--lavender); }
+
+  @media (max-width: 700px) {
+    .cards { display: flex; }
+    .edge { display: none; }
+    .page-head .actions :is(a, button):not(.btn-primary):not(.btn-danger) { display: none; }
+  }
 
   .msg { color: var(--soft); font-size: 15px; line-height: 22px; }
   .msg strong { color: var(--text); }

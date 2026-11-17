@@ -1,10 +1,12 @@
 <script>
+  import { untrack } from 'svelte';
   import { api } from './api.js';
   import Glyph from './Glyph.svelte';
 
-  let { onDone } = $props();
+  let { onDone, token = null } = $props();
+  const link = untrack(() => token); // o link não muda enquanto a tela está aberta
 
-  let mode = $state('login'); // 'login' | 'signup'
+  let mode = $state(link ? 'reset' : 'login'); // 'login' | 'signup' | 'reset'
   let forgot = $state(false);
   let name = $state('');
   let email = $state('');
@@ -13,17 +15,23 @@
   let busy = $state(false);
   let error = $state('');
   let signupOpen = $state(false);
+  let instance = $state('');
+  let target = $state(null); // { name, email } do link de criar senha
+  let linkError = $state('');
 
   // Sem nenhuma conta, a tela abre no cadastro: a primeira pessoa administra a instância.
-  api('/setup').then((r) => { signupOpen = r.signup; if (r.signup) mode = 'signup'; }).catch(() => {});
+  api('/setup').then((r) => { instance = r.name; signupOpen = r.signup; if (r.signup && !link) mode = 'signup'; }).catch(() => {});
+  if (link) api('/reset/check', { method: 'POST', body: { token: link } }).then((r) => (target = r)).catch((e) => (linkError = e.message));
+
+  const titles = { login: 'Entrar no Masterbase', signup: 'Criar conta', reset: 'Criar senha' };
 
   async function submit(e) {
     e.preventDefault();
     busy = true;
     error = '';
     try {
-      const body = mode === 'signup' ? { name, email, password } : { email, password };
-      await api(`/${mode}`, { method: 'POST', body });
+      if (mode === 'reset') await api('/reset', { method: 'POST', body: { token: link, password } });
+      else await api(`/${mode}`, { method: 'POST', body: mode === 'signup' ? { name, email, password } : { email, password } });
       onDone();
     } catch (err) {
       error = err.message;
@@ -34,15 +42,26 @@
 </script>
 
 <div class="page">
-  <header><Glyph size={26} /><span class="brand wordmark">Masterbase</span></header>
+  <header><Glyph size={26} /><span class="brand wordmark">{instance || 'Masterbase'}</span></header>
 
   <main>
     <div class="intro">
       <Glyph size={68} glow />
-      <h1 class="brand">{mode === 'login' ? 'Entrar no Masterbase' : 'Criar conta'}</h1>
-      <p>{mode === 'login' ? 'Use o e-mail e a senha da sua conta.' : 'Primeiro acesso. Essa conta vai administrar o Masterbase.'}</p>
+      <h1 class="brand">{titles[mode]}</h1>
+      <p>
+        {#if mode === 'login'}Use o e-mail e a senha da sua conta.
+        {:else if mode === 'signup'}Primeiro acesso. Essa conta vai administrar o Masterbase.
+        {:else if target}Para <strong>{target.name}</strong> · {target.email}
+        {:else if !linkError}Conferindo o link…{/if}
+      </p>
     </div>
 
+    {#if mode === 'reset' && linkError}
+      <div class="edge"><div class="card">
+        <p class="error" role="alert">{linkError}</p>
+        <a class="glass btn" href="#/inicio">Ir para o login</a>
+      </div></div>
+    {:else}
     <div class="edge">
       <form class="card" onsubmit={submit}>
         {#if mode === 'signup'}
@@ -52,28 +71,34 @@
           </label>
         {/if}
 
+        {#if mode !== 'reset'}
         <label>
           <span class="label">E-mail</span>
           <input class="field" type="email" bind:value={email} autocomplete="email" required />
         </label>
+        {:else if target}
+          <!-- Para o gerenciador de senhas saber de qual conta é a senha nova. -->
+          <input type="email" value={target.email} autocomplete="username" hidden readonly />
+        {/if}
 
         <label>
-          <span class="row"><span class="label">Senha</span>{#if mode === 'login'}<button type="button" class="link" onclick={() => (forgot = !forgot)}>Esqueci a senha</button>{/if}</span>
+          <span class="row"><span class="label">{mode === 'reset' ? 'Senha nova (10 ou mais caracteres)' : 'Senha'}</span>{#if mode === 'login'}<button type="button" class="link" onclick={() => (forgot = !forgot)}>Esqueci a senha</button>{/if}</span>
           <span class="pw">
-            <input class="field" type={showPw ? 'text' : 'password'} bind:value={password} autocomplete={mode === 'login' ? 'current-password' : 'new-password'} minlength={mode === 'signup' ? 10 : undefined} required />
+            <input class="field" type={showPw ? 'text' : 'password'} bind:value={password} autocomplete={mode === 'login' ? 'current-password' : 'new-password'} minlength={mode === 'login' ? undefined : 10} required />
             <button type="button" class="mono show" onclick={() => (showPw = !showPw)}>{showPw ? 'OCULTAR' : 'MOSTRAR'}</button>
           </span>
         </label>
 
-        {#if forgot && mode === 'login'}<p class="hint">Peça para um administrador criar uma senha nova na página Acesso.</p>{/if}
+        {#if forgot && mode === 'login'}<p class="hint">Peça a um administrador o link de senha nova (página Acesso). Se você é o único administrador, rode <code>masterbase senha SEU-EMAIL</code> no servidor.</p>{/if}
         {#if error}<p class="error" role="alert">{error}</p>{/if}
 
-        <button class="btn-primary submit" disabled={busy}>{mode === 'login' ? 'Entrar' : 'Criar conta'}</button>
+        <button class="btn-primary submit" disabled={busy || (mode === 'reset' && !target)}>{mode === 'login' ? 'Entrar' : mode === 'signup' ? 'Criar conta' : 'Salvar senha e entrar'}</button>
 
       </form>
     </div>
+    {/if}
 
-    {#if signupOpen}
+    {#if signupOpen && mode !== 'reset'}
     <p class="switch">
       {#if mode === 'login'}
         Ainda não tem conta? <button type="button" onclick={() => ((mode = 'signup'), (error = ''))}>Criar conta</button>
@@ -112,6 +137,9 @@
   .link { font-size: 13px; color: var(--soft); background: none; border: 0; padding: 0; }
   .link:hover { color: var(--text); }
   .hint { font-size: 13px; line-height: 20px; color: var(--lavender); }
+  .hint code { font-family: var(--mono); font-size: 12px; color: var(--soft); }
+  .intro strong { color: var(--text); font-weight: 600; }
+  .card .btn { align-self: flex-start; }
 
   .pw { position: relative; display: block; }
   .pw .field { padding-right: 96px; }

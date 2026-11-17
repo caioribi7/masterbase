@@ -74,18 +74,22 @@ export function phrase(a) {
     case 'change_column':
       return d.renamed && d.renamed !== d.column
         ? [{ t: 'renomeou a coluna ' }, { b: d.column }, { t: ' para ' }, { b: d.renamed }, { t: ' em ' }, T]
-        : [{ t: 'mudou a coluna ' }, { b: d.column }, { t: ' em ' }, T];
+        : [{ t: d.type ? `mudou o tipo de ` : 'mudou a coluna ' }, { b: d.column }, ...(d.type ? [{ t: ` para ${d.type}` }] : []), { t: ' em ' }, T];
     case 'import': return [{ t: `importou ${d.rows} ${d.rows === 1 ? 'linha' : 'linhas'} em ` }, T];
     case 'add_user': return [{ t: 'deu acesso a ' }, { b: d.email }, { t: ` como ${roleLabel(d.role)}` }];
     case 'change_user': return [{ t: d.active === false ? 'desativou ' : d.active ? 'reativou ' : d.password ? 'trocou a senha de ' : 'mudou o papel de ' }, { b: d.email }, ...(d.role ? [{ t: ` para ${roleLabel(d.role)}` }] : [])];
     case 'change_password': return [{ t: 'trocou a própria senha' }];
+    case 'reset_password': return [{ t: 'criou uma senha nova pelo link' }];
+    case 'password_link': return [{ t: 'gerou um link de senha para ' }, { b: d.email }];
+    case 'end_sessions': return [{ t: `saiu de ${d.count} ${d.count === 1 ? 'outro aparelho' : 'outros aparelhos'}` }];
+    case 'settings': return [{ t: 'mudou as configurações do Masterbase' }];
     case 'add_key': return [{ t: 'criou a chave de API ' }, { b: d.name }];
     case 'drop_key': return [{ t: 'revogou a chave de API ' }, { b: d.name }];
     case 'backup': return [{ t: 'fez um backup' }];
     case 'drop_backup': return [{ t: 'apagou um backup' }];
     case 'restore': return [{ t: 'restaurou o banco a partir de um backup' }];
     case 'auto_backup': return [{ t: 'fez o backup automático do dia' }];
-    case 'backup_settings': return [{ t: d.enabled === false ? 'desligou o backup automático' : d.enabled ? 'ligou o backup automático' : 'mudou o horário do backup automático' }];
+    case 'backup_settings': return [{ t: d.enabled === false ? 'desligou o backup automático' : d.enabled ? 'ligou o backup automático' : d.minute != null ? 'mudou o horário do backup automático' : 'mudou quantos backups guardar' }];
     case 'backup_key': return [{ t: 'viu a chave de recuperação dos backups' }];
     default: return [{ t: a.action }];
   }

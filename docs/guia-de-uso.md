@@ -38,7 +38,7 @@ Toda tabela ganha sozinha uma coluna `id`, que numera as linhas. É por ela que 
 Depois de criada, na mesma página você pode:
 
 - adicionar colunas (**Nova coluna**);
-- renomear uma coluna (o lápis ao lado do nome);
+- editar uma coluna (o lápis no fim da linha): nome, tipo, valor padrão e se é obrigatória;
 - apagar uma coluna (a lixeira no fim da linha), o que apaga os valores dela em todas as linhas;
 - renomear ou apagar a tabela. Para apagar, o Masterbase pede que você digite o nome dela.
 
@@ -46,6 +46,13 @@ Depois de criada, na mesma página você pode:
 
 - **Obrigatório:** a linha não pode ser salva com esse campo vazio. Só dá para ligar essa regra numa coluna em que todas as linhas já estão preenchidas.
 - **Sem repetidos:** duas linhas não podem ter o mesmo valor. Bom para e-mail, CPF, código de produto.
+- **Valor padrão:** o que a coluna recebe quando a linha nova chega sem esse campo. Pode ser um valor fixo (`ativo`, `0`), a data de hoje, a hora em que a linha foi criada ou um id novo. Uma coluna obrigatória com padrão pode ser criada mesmo em tabela que já tem linhas: as antigas recebem o padrão.
+
+### Mudar o tipo de uma coluna
+
+No lápis da coluna, escolha outro tipo. O Masterbase converte os valores que já existem: `"42"` em texto vira o número 42, `2026-11-17` em texto vira data. Se algum valor não servir no tipo novo (a palavra "doze" numa coluna que vai virar número), nada muda e a tela avisa. Corrija esses valores e tente de novo.
+
+Colunas de ligação não mudam de tipo. Para trocar, apague e crie de novo.
 
 ## Tipos de coluna
 
@@ -91,6 +98,8 @@ A página **Tabelas** funciona como uma planilha.
 - **Ordenar:** clique no nome da coluna. Um clique: crescente. Dois: decrescente. Três: tira a ordem.
 - **Exportar:** baixa a página atual em CSV, que abre no Excel ou no Google Planilhas.
 
+No celular, cada linha vira uma ficha com os primeiros campos. Toque na ficha para ver e editar tudo; a caixinha no canto marca a linha para apagar. **Nova linha** abre o mesmo formulário.
+
 ## Importar uma planilha
 
 1. Na planilha, a primeira linha precisa ter **exatamente os nomes das colunas** da tabela.
@@ -129,11 +138,13 @@ Escreva o comando e clique em **Rodar** (ou Ctrl+Enter). Dá para mandar vários
 - Comando que passa de 15 segundos é cancelado.
 - Comandos que mudam dados ficam registrados na Atividade.
 
-O editor roda com permissão total sobre o banco. Antes de um DROP ou um UPDATE grande, faça um backup.
+O editor lê e muda as linhas das suas tabelas: SELECT, INSERT, UPDATE, DELETE, TRUNCATE. Ele **não** cria, renomeia nem apaga tabelas e colunas (para isso use Estrutura) e não enxerga as contas, sessões e chaves do Masterbase. Assim, um comando colado sem querer não derruba a estrutura nem expõe senhas. Antes de um DELETE ou UPDATE grande, faça um backup.
+
+Se a página disser que o editor está desligado, o servidor não tem o acesso restrito configurado (`MB_SQL_URL`). Rodar o instalador de novo resolve.
 
 ## Dar acesso a outras pessoas
 
-Em **Acesso**, clique em **Nova pessoa**, preencha nome, e-mail, uma senha inicial e o papel. Passe a senha para a pessoa por um canal seguro; ela pode trocar depois em **Configurações**.
+Em **Acesso**, clique em **Nova pessoa** e preencha nome, e-mail e papel. Deixe a senha em branco: o Masterbase gera um **link de convite**. Copie e mande para a pessoa; ela abre, cria a própria senha e já entra. O link vale 24 horas e funciona uma vez só. Se preferir, preencha uma senha inicial e passe por um canal seguro.
 
 | Papel | Pode |
 |---|---|
@@ -141,7 +152,19 @@ Em **Acesso**, clique em **Nova pessoa**, preencha nome, e-mail, uma senha inici
 | Editor | Ver os dados, mudar, adicionar e apagar linhas, importar, salvar consultas. |
 | Leitor | Ver os dados e rodar consultas. |
 
-Na lista você também pode mudar o papel de alguém, dar uma senha nova (isso desconecta a pessoa de todos os aparelhos) e **desativar** a conta. Conta desativada não entra mais, mas o que ela fez continua no histórico.
+Na lista você também pode mudar o papel de alguém, gerar um **link de senha** e **desativar** a conta. Conta desativada não entra mais, mas o que ela fez continua no histórico.
+
+### Esqueci a senha
+
+Peça a um administrador: em **Acesso**, ele clica em **Link de senha** na sua linha e manda o link. Você abre, cria a senha nova e já entra. As sessões abertas com a senha antiga são encerradas.
+
+Se quem esqueceu é o único administrador, quem tem acesso ao servidor roda:
+
+```bash
+masterbase senha seu-email@empresa.com
+```
+
+O comando mostra o link. O Masterbase não manda e-mail sozinho: o link sempre passa pela mão de alguém.
 
 Você não consegue mudar o próprio papel nem se desativar. É de propósito: evita que o banco fique sem administrador.
 
@@ -158,7 +181,7 @@ Se uma chave vazar, clique em **Revogar**: ela para de funcionar na hora. Como u
 
 ## Backups
 
-O Masterbase faz um backup sozinho todo dia, às 03:00 no começo (mude o horário na própria página). Ficam os 7 mais recentes e um por semana das 4 semanas anteriores; os mais velhos são apagados sozinhos. Se o servidor estava desligado no horário, o backup sai assim que ele ligar.
+O Masterbase faz um backup sozinho todo dia, às 03:00 no começo (mude o horário na própria página). Ficam os 7 mais recentes e um por semana das 4 semanas anteriores; os mais velhos são apagados sozinhos. Os dois números mudam na própria página (**Guardar os diários** e **E mais um por semana**). Se o servidor estava desligado no horário, o backup sai assim que ele ligar.
 
 **Fazer backup agora** guarda uma cópia na hora, por exemplo antes de uma mudança grande. Esses manuais não são apagados sozinhos.
 
@@ -169,6 +192,8 @@ Na lista, cada backup mostra o tipo: **Automático**, **Manual** ou **Antes de r
 - **Apagar:** remove o arquivo do servidor.
 
 O backup tem as tabelas e os dados. Contas, chaves e histórico de atividade não entram.
+
+O quadro **Cópia fora do servidor** mostra se cada backup também vai para outro lugar (outro disco, Google Drive, S3). Quem configura é quem cuida do servidor; o passo a passo está em [Instalação](instalacao.md#copiar-os-backups-para-fora-do-servidor).
 
 ### Criptografia e chave de recuperação
 
@@ -192,13 +217,22 @@ Ele pede a chave e restaura no banco configurado.
 
 ## Atividade
 
-A página **Atividade** mostra quem fez o quê: entradas, linhas criadas, editadas e apagadas, mudanças de estrutura, pessoas e chaves criadas, backups. Use o seletor no canto para ver só uma tabela.
+A página **Atividade** mostra quem fez o quê: entradas, linhas criadas, editadas e apagadas, mudanças de estrutura, pessoas e chaves criadas, links de senha, backups. Use o seletor no canto para ver só uma tabela.
 
 ## Configurações
 
-Em **Configurações** você muda o seu nome e a sua senha. O quadro **Integrar com outro sistema** traz o endereço da documentação para IA, com botão para copiar.
+Em **Configurações** você:
 
-O administrador também vê como o Masterbase está rodando: versão, banco, endereço, quem pode acessar e onde ficam os backups. Para mudar isso, rode `masterbase configurar` no servidor e reinicie.
+- muda o seu nome e a sua senha (trocar a senha tira a conta dos outros aparelhos);
+- vê **onde está conectado**: cada navegador, quando foi usado pela última vez, com **Encerrar** para um e **Sair dos outros aparelhos** para todos menos este. **Sair** fica aqui também;
+- ajusta **leitura e conforto**: tamanho do texto (de Menor a Bem maior) e **Menos movimento**, que desliga as animações. Vale só no navegador em que você escolheu.
+
+O quadro **Integrar com outro sistema** traz o endereço da documentação para IA, com botão para copiar.
+
+O administrador também vê:
+
+- **Instância:** o nome que aparece na tela e no login (ex.: "Padaria Aurora") e quanto tempo uma sessão dura antes de pedir a senha de novo (1 a 90 dias);
+- como o Masterbase está rodando: versão, banco, endereço, quem pode acessar, se o editor SQL está ligado e onde ficam os backups. Para mudar isso, rode `masterbase configurar` no servidor e reinicie.
 
 ## Problemas comuns
 
@@ -210,5 +244,7 @@ O administrador também vê como o Masterbase está rodando: versão, banco, end
 | "Ligação inválida: o registro ligado não existe ou ainda está em uso." | Você apontou para um `id` que não existe, ou tentou apagar uma linha que outra tabela usa. |
 | "Outras tabelas dependem disso. Remova as ligações antes." | Apague primeiro a coluna de ligação na outra tabela. |
 | "Seu acesso é só de leitura." | Seu papel é leitor. Peça a um administrador. |
-| "Muitas tentativas. Espere 15 minutos." | Cinco senhas erradas seguidas. |
+| "Muitas tentativas. Espere 15 minutos." | Cinco senhas erradas seguidas para o mesmo e-mail, ou muitas tentativas vindas do mesmo lugar. |
+| "Link inválido ou vencido." | O link de senha passou de 24 horas ou já foi usado. Peça outro. |
+| "Alguns valores não combinam com o tipo escolhido." | Na troca de tipo de coluna, algum valor atual não converte. Nada mudou. |
 | "Tabela sem chave: só leitura." | A tabela foi criada fora do Masterbase sem chave primária. Dá para ver, não para editar. |

@@ -60,6 +60,8 @@ pub struct Col {
     pub required: bool,
     pub unique: bool,
     pub link: Option<String>,
+    /// Expressão do valor padrão, como o Postgres guarda (pg_get_expr). "auto" para coluna identity.
+    pub default: Option<String>,
 }
 
 impl Col {
@@ -67,11 +69,48 @@ impl Col {
         json!({
             "name": self.name, "type": self.ty, "label": label(&self.ty, &self.typtype),
             "pk": self.pk, "required": self.required, "unique": self.unique, "link": self.link,
+            "default": self.default.as_deref().map(default_json),
         })
     }
 }
 
-type ColRow = (String, String, String, String, bool, bool, bool, Option<String>);
+/// Valor padrão em palavras: {mode: agora | hoje | id novo | auto | fixo | outro, value}.
+pub fn default_json(expr: &str) -> Value {
+    let e = expr.trim();
+    let mode = match e.to_lowercase().as_str() {
+        "auto" => "auto",
+        "now()" | "current_timestamp" | "clock_timestamp()" | "statement_timestamp()" => "agora",
+        "current_date" => "hoje",
+        "gen_random_uuid()" | "uuid_generate_v4()" => "id novo",
+        _ => "",
+    };
+    if !mode.is_empty() {
+        return json!({ "mode": mode });
+    }
+    if let Some(v) = literal(e) {
+        return json!({ "mode": "fixo", "value": v });
+    }
+    json!({ "mode": "outro", "value": e })
+}
+
+/// 'texto'::tipo, número ou true/false. Outra coisa (função, expressão) devolve None.
+fn literal(e: &str) -> Option<String> {
+    if let Some(rest) = e.strip_prefix('\'') {
+        let end = rest.rfind('\'')?;
+        let (inner, tail) = (&rest[..end], &rest[end + 1..]);
+        if !(tail.is_empty() || tail.starts_with("::")) || inner.replace("''", "").contains('\'') {
+            return None;
+        }
+        return Some(inner.replace("''", "'"));
+    }
+    let bare = e.split("::").next()?.trim().trim_start_matches('(').trim_end_matches(')').trim();
+    if bare == "true" || bare == "false" || bare.parse::<f64>().is_ok() {
+        return Some(bare.to_owned());
+    }
+    None
+}
+
+type ColRow = (String, String, String, String, bool, bool, bool, Option<String>, Option<String>);
 
 /// Colunas de uma tabela do schema public (ou de todas, com `None`). Tabela inexistente = 404.
 pub async fn columns(db: &PgPool, table: Option<&str>) -> ApiResult<Vec<Col>> {
@@ -81,12 +120,14 @@ pub async fn columns(db: &PgPool, table: Option<&str>) -> ApiResult<Vec<Col>> {
                 a.attnotnull,
                 EXISTS (SELECT 1 FROM pg_constraint u WHERE u.conrelid = c.oid AND u.contype = 'u' AND u.conkey = ARRAY[a.attnum]),
                 (SELECT r.relname::text FROM pg_constraint f JOIN pg_class r ON r.oid = f.confrelid
-                  WHERE f.conrelid = c.oid AND f.contype = 'f' AND f.conkey = ARRAY[a.attnum] LIMIT 1)
+                  WHERE f.conrelid = c.oid AND f.contype = 'f' AND f.conkey = ARRAY[a.attnum] LIMIT 1),
+                CASE WHEN a.attidentity <> '' THEN 'auto' ELSE pg_get_expr(d.adbin, d.adrelid) END
          FROM pg_attribute a
          JOIN pg_class c ON c.oid = a.attrelid
          JOIN pg_namespace n ON n.oid = c.relnamespace
          JOIN pg_type t ON t.oid = a.atttypid
          LEFT JOIN pg_constraint p ON p.conrelid = c.oid AND p.contype = 'p'
+         LEFT JOIN pg_attrdef d ON d.adrelid = c.oid AND d.adnum = a.attnum
          WHERE n.nspname = 'public' AND c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped
            AND ($1::text IS NULL OR c.relname = $1)
          ORDER BY c.relname, a.attnum",
@@ -99,7 +140,7 @@ pub async fn columns(db: &PgPool, table: Option<&str>) -> ApiResult<Vec<Col>> {
     }
     Ok(rows
         .into_iter()
-        .map(|(table, name, ty, typtype, pk, required, unique, link)| Col { table, name, ty, typtype, pk, required, unique, link })
+        .map(|(table, name, ty, typtype, pk, required, unique, link, default)| Col { table, name, ty, typtype, pk, required, unique, link, default })
         .collect())
 }
 
@@ -148,6 +189,20 @@ mod tests {
             assert_eq!(label(pg, "b"), k);
         }
         assert!(kind_sql("text; DROP TABLE x").is_none());
+    }
+
+    #[test]
+    fn defaults_in_words() {
+        assert_eq!(default_json("now()")["mode"], "agora");
+        assert_eq!(default_json("CURRENT_DATE")["mode"], "hoje");
+        assert_eq!(default_json("gen_random_uuid()")["mode"], "id novo");
+        assert_eq!(default_json("'ativo'::text"), json!({ "mode": "fixo", "value": "ativo" }));
+        assert_eq!(default_json("'d''água'::text")["value"], "d'água");
+        assert_eq!(default_json("0"), json!({ "mode": "fixo", "value": "0" }));
+        assert_eq!(default_json("(-1.5)::numeric")["value"], "-1.5");
+        assert_eq!(default_json("true")["value"], "true");
+        assert_eq!(default_json("lower('A'::text)")["mode"], "outro");
+        assert_eq!(default_json("'a'::text || 'b'::text")["mode"], "outro");
     }
 
     #[test]

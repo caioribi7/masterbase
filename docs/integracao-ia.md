@@ -81,16 +81,18 @@ Call this first to learn the structure.
   {
     "name": "pedidos",
     "columns": [
-      { "name": "id", "type": "bigint", "label": "número", "pk": true, "required": true, "unique": true, "link": null },
-      { "name": "cliente", "type": "bigint", "label": "número", "pk": false, "required": true, "unique": false, "link": "clientes" },
-      { "name": "total", "type": "numeric", "label": "decimal", "pk": false, "required": false, "unique": false, "link": null }
+      { "name": "id", "type": "bigint", "label": "número", "pk": true, "required": true, "unique": true, "link": null, "default": { "mode": "auto" } },
+      { "name": "cliente", "type": "bigint", "label": "número", "pk": false, "required": true, "unique": false, "link": "clientes", "default": null },
+      { "name": "status", "type": "text", "label": "texto", "pk": false, "required": true, "unique": false, "link": null, "default": { "mode": "fixo", "value": "novo" } },
+      { "name": "total", "type": "numeric", "label": "decimal", "pk": false, "required": false, "unique": false, "link": null, "default": null }
     ]
   }
 ]
 ```
 
 - `pk`: primary key. Use its value to update or delete a row.
-- `required`: NOT NULL with no default. Must be sent on insert.
+- `required`: NOT NULL. Must be sent on insert unless `default` is set.
+- `default`: what the database fills in when the column is omitted on insert. `mode` is `auto` (sequence), `agora` (now), `hoje` (today), `id novo` (new UUID), `fixo` (fixed `value`), `outro` (other SQL expression), or the whole field is `null` (no default).
 - `unique`: no duplicates allowed.
 - `link`: name of the table this column points to (foreign key), or `null`.
 

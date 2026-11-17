@@ -67,6 +67,8 @@ dados.suaempresa.com.br {
 
 Com nginx ou outro proxy, o que importa é: o HTTPS termina nele e ele repassa para `127.0.0.1:8080`.
 
+O proxy precisa estar na mesma máquina. É assim que o Masterbase sabe o IP real de quem tenta entrar (pelo cabeçalho `X-Forwarded-For`, que o Caddy manda sozinho) e bloqueia quem testa senhas demais. Esse cabeçalho só é aceito quando o pedido chega de `127.0.0.1`.
+
 ## 5. Primeiro acesso
 
 Abra o endereço do painel. A tela pede a primeira conta. **Faça isso logo depois de subir o servidor:** enquanto não houver nenhuma conta, quem chegar primeiro vira quem administra.
@@ -87,9 +89,32 @@ Enquanto roda, o Masterbase escreve no terminal uma linha por pedido à API e um
 
 A hora é UTC (o `Z` no fim). O caminho não inclui o que vem depois do `?`, e senhas nunca aparecem. Como serviço, as mesmas linhas vão para o journal: `journalctl -u masterbase -f`. Para desligar, `MB_LOG=off`.
 
+## Esqueci a senha
+
+Se ninguém que administra consegue entrar:
+
+```bash
+masterbase senha email-da-conta@empresa.com
+```
+
+Sai um link que vale 24 horas, uma vez só. Abra no navegador e crie a senha nova. Se o painel fica atrás de um domínio, troque `127.0.0.1:8080` pelo domínio antes de abrir.
+
 ## Backups
 
-O Masterbase faz um backup por dia sozinho e apaga os antigos (ficam 7 diários e 4 semanais). Os arquivos ficam em `~/.local/share/masterbase/backups`, no mesmo servidor. Isso protege contra erro humano (apagou a tabela errada), não contra perder o servidor. Copie essa pasta para outro lugar com a ferramenta que você já usa (rsync, restic, o backup do provedor): os arquivos são criptografados, então podem ir para qualquer lugar.
+O Masterbase faz um backup por dia sozinho e apaga os antigos (por padrão ficam 7 diários e 4 semanais; muda na página Backups). Os arquivos ficam em `~/.local/share/masterbase/backups`, no mesmo servidor. Isso protege contra erro humano (apagou a tabela errada), não contra perder o servidor. Para isso, copie cada backup para fora (veja abaixo): os arquivos são criptografados, então podem ir para qualquer lugar.
+
+### Copiar os backups para fora do servidor
+
+Duas opções no arquivo de configuração (dá para usar as duas):
+
+- `MB_BACKUP_COPY_DIR=/mnt/outro-disco/masterbase`: copia cada backup novo para essa pasta. Serve para um segundo disco ou um volume do provedor montado no servidor.
+- `MB_BACKUP_HOOK=...`: roda um comando depois de cada backup, com o caminho do arquivo em `$MB_BACKUP_FILE`. Com o [rclone](https://rclone.org) configurado (`rclone config`), manda para Google Drive, S3, Backblaze B2, Dropbox e outros:
+
+  ```
+  MB_BACKUP_HOOK=rclone copy "$MB_BACKUP_FILE" b2:minha-empresa-backups
+  ```
+
+Reinicie o Masterbase depois de mudar. A página Backups mostra quando foi a última cópia e o erro, se falhou. A rotação só apaga os arquivos do servidor; o que foi copiado para fora fica até você apagar lá.
 
 **Guarde a chave de recuperação logo depois de instalar:**
 
@@ -122,6 +147,9 @@ O arquivo `~/.config/masterbase/masterbase.env` tem uma linha por item. Variáve
 | `MB_ADDR` | `127.0.0.1:8080` | Endereço e porta do painel. |
 | `MB_BACKUP_DIR` | `backups` | Pasta dos backups. |
 | `MB_BACKUP_KEY` | (criada sozinha) | Chave que criptografa os backups. Não troque: backups feitos com a anterior deixam de abrir aqui. |
+| `MB_BACKUP_COPY_DIR` | (vazio) | Pasta para onde cada backup novo é copiado. |
+| `MB_BACKUP_HOOK` | (vazio) | Comando rodado depois de cada backup, com o arquivo em `$MB_BACKUP_FILE`. |
+| `MB_SQL_URL` | (criada pelo instalador) | Conexão do editor SQL, com um papel que só lê e muda linhas. Sem ela, o editor fica desligado. |
 | `MB_INSECURE_COOKIE` | (vazio) | `1` aceita login sem HTTPS. Só para rede local. |
 | `MB_LOG` | (ligado) | `off` desliga as linhas de acompanhamento no terminal. |
 | `MB_CONFIG` | `~/.config/masterbase/masterbase.env` | Outro arquivo de configuração. |
@@ -136,7 +164,10 @@ Em outro Linux, ou para compilar você mesmo:
    ```bash
    sudo -u postgres psql -c "CREATE ROLE masterbase LOGIN PASSWORD 'uma-senha-longa-e-aleatoria'"
    sudo -u postgres psql -c "CREATE DATABASE masterbase OWNER masterbase"
+   # acesso do editor SQL (só linhas); o Masterbase dá as permissões ao subir
+   sudo -u postgres psql -c "CREATE ROLE masterbase_sql LOGIN PASSWORD 'outra-senha-longa'"
    ```
+   e no arquivo de configuração: `MB_SQL_URL=postgresql://masterbase_sql:outra-senha-longa@127.0.0.1:5432/masterbase`
 3. Baixe o programa da [página de releases](https://github.com/caioribi7/masterbase/releases) ou compile (precisa de Rust e Node 20+):
    ```bash
    git clone https://github.com/caioribi7/masterbase.git && cd masterbase
@@ -151,13 +182,15 @@ Dá para apontar `DATABASE_URL` para um banco com tabelas prontas: elas aparecem
 
 - o usuário da conexão precisa poder criar o schema `masterbase` nesse banco;
 - tabelas sem chave primária aparecem só para leitura;
-- o Masterbase mostra o schema `public`. Tabelas em outros schemas não aparecem.
+- o Masterbase mostra o schema `public`. Tabelas em outros schemas não aparecem;
+- para o editor SQL, crie um papel só com LOGIN (sem superusuário) e ponha a URL dele em `MB_SQL_URL`. Ao subir, o Masterbase dá a ele leitura e escrita nas linhas de `public` e nada mais.
 
 ## Limites que você deve conhecer
 
-- O Masterbase conecta como dono do banco. Quem administra o Masterbase tem, na prática, controle total das tabelas.
+- O Masterbase conecta como dono do banco. O editor SQL usa um papel separado, que só mexe em linhas, mas a tela Estrutura cria e apaga tabelas: quem administra o Masterbase manda nas tabelas.
 - A conexão com o Postgres não usa TLS. Mantenha o banco na mesma máquina ou numa rede privada.
-- O bloqueio de tentativas de login é por e-mail e fica na memória: reiniciar o serviço zera.
+- O bloqueio de tentativas de login (5 por e-mail, 30 por IP, em 15 minutos) fica na memória: reiniciar o serviço zera.
+- O Masterbase não manda e-mail. Convites e links de senha são copiados e enviados por quem administra.
 - Um servidor atende um banco. Não há vários projetos.
 
 A lista completa está em [MVP.md](../MVP.md#falta).

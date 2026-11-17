@@ -134,7 +134,7 @@
           <span class="label">Backup automático</span>
           <p class="hint">
             {#if cfg.enabled}
-              Todo dia. O próximo sai {nextText(cfg.next)}. Ficam os últimos {cfg.keep_daily} e um por semana das {cfg.keep_weekly} semanas anteriores; os mais velhos são apagados sozinhos.
+              Todo dia. O próximo sai {nextText(cfg.next)}. Os mais velhos que a regra abaixo são apagados sozinhos.
             {:else}
               Desligado. Só existe backup quando alguém clica em "Fazer backup agora".
             {/if}
@@ -151,11 +151,39 @@
           {cfg.enabled ? 'Ligado' : 'Desligado'}
         </label>
       </div>
+      {#if cfg.enabled}
+        <div class="keep">
+          <label class="time"><span class="label dim">Guardar os diários</span>
+            <select class="field small" value={cfg.keep_daily} onchange={(e) => change({ keep_daily: +e.currentTarget.value })}>
+              {#each [3, 7, 14, 30, 60] as n}<option value={n}>últimos {n}</option>{/each}
+            </select></label>
+          <label class="time"><span class="label dim">E mais um por semana</span>
+            <select class="field small" value={cfg.keep_weekly} onchange={(e) => change({ keep_weekly: +e.currentTarget.value })}>
+              {#each [0, 4, 8, 12, 26, 52] as n}<option value={n}>{n === 0 ? 'nenhum' : `${n} semanas`}</option>{/each}
+            </select></label>
+        </div>
+      {/if}
       {#if cfg.failed}<p class="error" role="alert">O último backup automático falhou: {cfg.failed} Tentamos de novo em uma hora.</p>{/if}
       <div class="facts">
         <span class="badge" class:lime={cfg.encrypted}><Icon name="key" size={12} /> {cfg.encrypted ? 'Criptografados' : 'Sem criptografia'}</span>
         {#if cfg.encrypted}<button class="link" onclick={openKey}>Chave de recuperação</button>{/if}
       </div>
+    </div></div>
+
+    <div class="panel-edge"><div class="panel card">
+      <span class="label">Cópia fora do servidor</span>
+      {#if cfg.copy.dir || cfg.copy.hook}
+        <p class="hint">
+          Cada backup novo vai também para
+          {#if cfg.copy.dir}a pasta <code class="mono">{cfg.copy.dir}</code>{/if}{#if cfg.copy.dir && cfg.copy.hook} e {/if}{#if cfg.copy.hook}o comando de cópia configurado{/if}.
+          {#if cfg.copy.last}
+            {#if cfg.copy.last.error}<span class="error">A última cópia falhou ({when(cfg.copy.last.at)}): {cfg.copy.last.error}</span>
+            {:else}Última cópia: {when(cfg.copy.last.at)}.{/if}
+          {/if}
+        </p>
+      {:else}
+        <p class="hint">Desligada. Se o disco deste servidor morrer, os backups vão junto. Para mandar cada backup para outro lugar, coloque no arquivo de configuração <code class="mono">MB_BACKUP_COPY_DIR</code> (uma pasta em outro disco) ou <code class="mono">MB_BACKUP_HOOK</code> (um comando, como o rclone para Google Drive, S3 ou Backblaze) e reinicie. O passo a passo está em docs/instalacao.md.</p>
+      {/if}
     </div></div>
   {/if}
 
@@ -242,7 +270,9 @@
   .grow { flex: 1 1 320px; display: flex; flex-direction: column; gap: 6px; }
   .time { display: flex; flex-direction: column; gap: 6px; }
   .time.off { opacity: .5; }
-  .time select { width: 110px; }
+  .time select { width: 150px; }
+  .keep { display: flex; gap: 18px; flex-wrap: wrap; }
+  .hint .error { display: block; margin-top: 6px; }
   .switch, .check { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--soft); cursor: pointer; height: 36px; }
   .check { height: auto; line-height: 20px; }
   .facts { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

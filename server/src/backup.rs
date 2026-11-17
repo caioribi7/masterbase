@@ -5,7 +5,11 @@
 //! a saída do pg_dump passa direto pela criptografia e nunca existe cópia aberta no disco.
 //! A mesma chave abre o arquivo em outra máquina (`masterbase recuperar` ou `age -d`).
 //!
-//! Backup automático: um por dia no horário escolhido. Guarda os últimos 7 e um por semana das 4 anteriores.
+//! Backup automático: um por dia no horário escolhido. Guarda os últimos N (padrão 7) e um por semana de mais M (padrão 4).
+//!
+//! Cópia fora do servidor (só no arquivo de configuração, nunca pela tela):
+//! MB_BACKUP_COPY_DIR copia cada backup novo para outra pasta (um disco montado, por exemplo);
+//! MB_BACKUP_HOOK roda um comando com o caminho do arquivo em $MB_BACKUP_FILE (ex.: rclone copy "$MB_BACKUP_FILE" remoto:backups).
 use crate::activity::{log, log_system};
 use crate::auth::User;
 use crate::error::{bad, ApiError, ApiResult};
@@ -24,8 +28,6 @@ use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 
-const KEEP_DAILY: usize = 7;
-const KEEP_WEEKLY: usize = 4;
 const DAY: u64 = 86_400;
 
 fn dir() -> PathBuf {
@@ -345,22 +347,69 @@ async fn dump(kind: Kind) -> ApiResult<String> {
         return Err(e.api());
     }
     tokio::fs::rename(&part, &file).await.map_err(|_| ApiError(StatusCode::INTERNAL_SERVER_ERROR, "Não consegui salvar o backup."))?;
+    if kind != Kind::Before {
+        let copy_name = name.clone();
+        tokio::task::spawn_blocking(move || offsite(&file, &copy_name));
+    }
     Ok(name)
+}
+
+// ---------- cópia fora do servidor ----------
+
+/// Resultado da última cópia externa: (quando, nome, erro). A tela mostra.
+static LAST_COPY: Mutex<Option<(u64, String, Option<String>)>> = Mutex::new(None);
+
+fn offsite(file: &FsPath, name: &str) {
+    let dir = std::env::var("MB_BACKUP_COPY_DIR").ok().filter(|d| !d.trim().is_empty());
+    let hook = std::env::var("MB_BACKUP_HOOK").ok().filter(|h| !h.trim().is_empty());
+    if dir.is_none() && hook.is_none() {
+        return;
+    }
+    let mut error = None;
+    if let Some(d) = dir {
+        let target = PathBuf::from(d);
+        let part = target.join(format!("{name}.part"));
+        let res = std::fs::create_dir_all(&target)
+            .and_then(|_| std::fs::copy(file, &part))
+            .and_then(|_| std::fs::rename(&part, target.join(name)));
+        if let Err(e) = res {
+            std::fs::remove_file(&part).ok();
+            error = Some(format!("cópia para a pasta falhou: {e}"));
+        }
+    }
+    if let Some(h) = hook {
+        match Command::new("sh").arg("-c").arg(&h).env("MB_BACKUP_FILE", file).stdout(Stdio::null()).stderr(Stdio::piped()).output() {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => {
+                let msg: String = String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("").chars().take(200).collect();
+                error.get_or_insert(format!("comando de cópia falhou: {msg}"));
+            }
+            Err(e) => {
+                error.get_or_insert(format!("comando de cópia não rodou: {e}"));
+            }
+        }
+    }
+    if let Some(e) = &error {
+        eprintln!("{} {e}", crate::activity::clock());
+    } else if crate::activity::logging() {
+        println!("{} sistema copiou {name} para fora do servidor", crate::activity::clock());
+    }
+    *LAST_COPY.lock().unwrap_or_else(|p| p.into_inner()) = Some((now(), name.to_string(), error));
 }
 
 // ---------- rotação ----------
 
 /// Dos backups automáticos (horários, mais novo primeiro), quais apagar:
-/// ficam os KEEP_DAILY mais novos e, dos mais velhos, o mais novo de cada uma das KEEP_WEEKLY semanas seguintes.
-fn to_prune(autos: &[u64]) -> Vec<u64> {
+/// ficam os `daily` mais novos e, dos mais velhos, o mais novo de cada uma das `weekly` semanas seguintes.
+fn to_prune(autos: &[u64], daily: usize, weekly: usize) -> Vec<u64> {
     let mut weeks: Vec<u64> = Vec::new();
     let mut out = Vec::new();
     for (i, &at) in autos.iter().enumerate() {
-        if i < KEEP_DAILY {
+        if i < daily {
             continue;
         }
         let week = at / DAY / 7;
-        if weeks.contains(&week) || weeks.len() >= KEEP_WEEKLY {
+        if weeks.contains(&week) || weeks.len() >= weekly {
             out.push(at);
         } else {
             weeks.push(week);
@@ -369,10 +418,10 @@ fn to_prune(autos: &[u64]) -> Vec<u64> {
     out
 }
 
-fn prune() {
+fn prune(daily: usize, weekly: usize) {
     let all = scan();
     let autos: Vec<u64> = all.iter().filter(|(_, n, _)| n.kind == Kind::Auto).map(|(_, n, _)| n.at).collect();
-    let old = to_prune(&autos);
+    let old = to_prune(&autos, daily, weekly);
     for (name, n, _) in &all {
         if n.kind == Kind::Auto && old.contains(&n.at) {
             if std::fs::remove_file(dir().join(name)).is_ok() && crate::activity::logging() {
@@ -410,7 +459,9 @@ pub async fn scheduler(db: PgPool) {
     let mut retry_at = 0;
     loop {
         tokio::time::sleep(Duration::from_secs(60)).await;
-        let Ok((enabled, minute)) = sqlx::query_as::<_, (bool, i32)>("SELECT enabled, minute FROM masterbase.backup_settings").fetch_one(&db).await else {
+        let Ok((enabled, minute, daily, weekly)) =
+            sqlx::query_as::<_, (bool, i32, i32, i32)>("SELECT enabled, minute, keep_daily, keep_weekly FROM masterbase.backup_settings").fetch_one(&db).await
+        else {
             continue;
         };
         let now = now();
@@ -420,7 +471,7 @@ pub async fn scheduler(db: PgPool) {
         match dump(Kind::Auto).await {
             Ok(name) => {
                 *AUTO_FAILED.lock().unwrap_or_else(|p| p.into_inner()) = None;
-                tokio::task::spawn_blocking(prune).await.ok();
+                tokio::task::spawn_blocking(move || prune(daily as usize, weekly as usize)).await.ok();
                 log_system(&db, "auto_backup", json!({ "name": name })).await.ok();
             }
             Err(e) => {
@@ -450,13 +501,18 @@ pub async fn create(user: User, State(db): State<PgPool>) -> ApiResult<Json<Valu
     Ok(Json(json!({ "name": name })))
 }
 
+/// Manda o arquivo aos pedaços: backup de vários GB não passa pela memória.
 pub async fn download(user: User, Path(name): Path<String>) -> ApiResult<impl IntoResponse> {
     user.admin()?;
-    // shortcut: arquivo inteiro na memória. Trocar por stream quando os bancos passarem de centenas de MB.
-    let bytes = tokio::fs::read(path(&name)?).await.map_err(|_| ApiError(StatusCode::NOT_FOUND, "Backup não encontrado."))?;
+    let file = tokio::fs::File::open(path(&name)?).await.map_err(|_| ApiError(StatusCode::NOT_FOUND, "Backup não encontrado."))?;
+    let size = file.metadata().await.map(|m| m.len()).unwrap_or(0);
     Ok((
-        [(header::CONTENT_TYPE, "application/octet-stream".to_owned()), (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\""))],
-        bytes,
+        [
+            (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\"")),
+            (header::CONTENT_LENGTH, size.to_string()),
+        ],
+        axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file)),
     ))
 }
 
@@ -499,8 +555,11 @@ pub async fn restore(user: User, State(db): State<PgPool>, Path(name): Path<Stri
 
 pub async fn get_settings(user: User, State(db): State<PgPool>) -> ApiResult<Json<Value>> {
     user.admin()?;
-    let (enabled, minute, key_saved): (bool, i32, bool) =
-        sqlx::query_as("SELECT enabled, minute, key_saved_at IS NOT NULL FROM masterbase.backup_settings").fetch_one(&db).await?;
+    let (enabled, minute, key_saved, keep_daily, keep_weekly): (bool, i32, bool, i32, i32) = sqlx::query_as(
+        "SELECT enabled, minute, key_saved_at IS NOT NULL, keep_daily, keep_weekly FROM masterbase.backup_settings",
+    )
+    .fetch_one(&db)
+    .await?;
     let now = now();
     let slot = last_slot(now, minute as u64);
     let next = if newest_auto() < slot { now + 60 } else { slot + DAY };
@@ -511,10 +570,23 @@ pub async fn get_settings(user: User, State(db): State<PgPool>) -> ApiResult<Jso
         "next": enabled.then_some(next * 1000),
         "encrypted": key().is_some(),
         "key_saved": key_saved,
-        "keep_daily": KEEP_DAILY,
-        "keep_weekly": KEEP_WEEKLY,
+        "keep_daily": keep_daily,
+        "keep_weekly": keep_weekly,
         "failed": failed,
+        "copy": copy_info(),
     })))
+}
+
+/// Para onde vai a cópia externa e como foi a última. Não mostra o comando: pode ter senha de serviço.
+fn copy_info() -> Value {
+    let dir = std::env::var("MB_BACKUP_COPY_DIR").ok().filter(|d| !d.trim().is_empty());
+    let hook = std::env::var("MB_BACKUP_HOOK").ok().filter(|h| !h.trim().is_empty());
+    let last = LAST_COPY.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    json!({
+        "dir": dir,
+        "hook": hook.is_some(),
+        "last": last.map(|(at, name, error)| json!({ "at": at * 1000, "name": name, "error": error })),
+    })
 }
 
 #[derive(Deserialize)]
@@ -523,6 +595,8 @@ pub struct SettingsChange {
     /// Minuto do dia em UTC (0 a 1439). A tela converte do horário de quem vê.
     minute: Option<i32>,
     key_saved: Option<bool>,
+    keep_daily: Option<i32>,
+    keep_weekly: Option<i32>,
 }
 
 pub async fn change_settings(user: User, State(db): State<PgPool>, Json(b): Json<SettingsChange>) -> ApiResult<Json<Value>> {
@@ -530,17 +604,24 @@ pub async fn change_settings(user: User, State(db): State<PgPool>, Json(b): Json
     if b.minute.is_some_and(|m| !(0..1440).contains(&m)) {
         return Err(bad("Horário inválido."));
     }
+    if b.keep_daily.is_some_and(|n| !(1..=60).contains(&n)) || b.keep_weekly.is_some_and(|n| !(0..=52).contains(&n)) {
+        return Err(bad("Guarde de 1 a 60 diários e de 0 a 52 semanais."));
+    }
     sqlx::query(
         "UPDATE masterbase.backup_settings SET enabled = coalesce($1, enabled), minute = coalesce($2, minute),
-         key_saved_at = CASE WHEN $3 THEN now() WHEN $3 = false THEN NULL ELSE key_saved_at END",
+         key_saved_at = CASE WHEN $3 THEN now() WHEN $3 = false THEN NULL ELSE key_saved_at END,
+         keep_daily = coalesce($4, keep_daily), keep_weekly = coalesce($5, keep_weekly)",
     )
     .bind(b.enabled)
     .bind(b.minute)
     .bind(b.key_saved)
+    .bind(b.keep_daily)
+    .bind(b.keep_weekly)
     .execute(&db)
     .await?;
-    if b.enabled.is_some() || b.minute.is_some() {
-        log(&db, user.id, "backup_settings", json!({ "enabled": b.enabled, "minute": b.minute })).await?;
+    if b.enabled.is_some() || b.minute.is_some() || b.keep_daily.is_some() || b.keep_weekly.is_some() {
+        let detail = json!({ "enabled": b.enabled, "minute": b.minute, "keep_daily": b.keep_daily, "keep_weekly": b.keep_weekly });
+        log(&db, user.id, "backup_settings", detail).await?;
     }
     get_settings(user, State(db)).await
 }
@@ -553,11 +634,18 @@ pub struct ShowKey {
 /// Mostra a chave de recuperação. Pede a senha de novo: uma sessão esquecida aberta não entrega a chave.
 pub async fn show_key(user: User, State(db): State<PgPool>, Json(b): Json<ShowKey>) -> ApiResult<Json<Value>> {
     user.admin()?;
+    // Mesmo limite do login: 5 senhas erradas em 15 minutos travam.
+    let lock = format!("key:{}", user.id);
+    if crate::auth::attempts().blocked(&lock, 5, std::time::Instant::now()) {
+        return Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "Muitas tentativas. Espere 15 minutos."));
+    }
     let hash: String = sqlx::query_scalar("SELECT password_hash FROM masterbase.users WHERE id = $1").bind(user.id).fetch_one(&db).await?;
     let ok = PasswordHash::new(&hash).map(|h| Argon2::default().verify_password(b.password.as_bytes(), &h).is_ok()).unwrap_or(false);
     if !ok {
+        crate::auth::attempts().fail(&lock, std::time::Instant::now());
         return Err(bad("Senha incorreta."));
     }
+    crate::auth::attempts().clear(&lock);
     let key = std::env::var("MB_BACKUP_KEY").map_err(|_| bad("Este servidor ainda não tem chave de backup."))?;
     log(&db, user.id, "backup_key", json!({})).await?;
     Ok(Json(json!({ "key": key.trim() })))
@@ -601,13 +689,14 @@ mod tests {
     fn prune_keeps_seven_days_and_four_weeks() {
         let base = 1_794_882_615;
         let autos: Vec<u64> = (0..60).map(|i| base - i * DAY).collect();
-        let old = to_prune(&autos);
+        let old = to_prune(&autos, 7, 4);
         let kept: Vec<u64> = autos.iter().copied().filter(|a| !old.contains(a)).collect();
-        assert_eq!(kept.len(), KEEP_DAILY + KEEP_WEEKLY);
-        assert_eq!(&kept[..KEEP_DAILY], &autos[..KEEP_DAILY]);
-        let weeks: Vec<u64> = kept[KEEP_DAILY..].iter().map(|a| a / DAY / 7).collect();
+        assert_eq!(kept.len(), 7 + 4);
+        assert_eq!(&kept[..7], &autos[..7]);
+        let weeks: Vec<u64> = kept[7..].iter().map(|a| a / DAY / 7).collect();
         assert!(weeks.windows(2).all(|w| w[0] > w[1]));
-        assert!(to_prune(&autos[..5]).is_empty());
+        assert!(to_prune(&autos[..5], 7, 4).is_empty());
+        assert_eq!(to_prune(&autos, 3, 0).len(), 57);
     }
 
     #[test]

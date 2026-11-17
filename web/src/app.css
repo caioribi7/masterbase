@@ -65,6 +65,8 @@ button { cursor: pointer; }
 .label { font-family: 'Martian Mono', monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--lavender); }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+/* "Menos movimento" em Configurações: o mesmo, escolhido na tela. */
+.calm *, .calm *::before, .calm *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 
 /* ---------- Shell do app (compartilhado pelas páginas) ---------- */
 .grow { flex: 1; min-width: 0; }

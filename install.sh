@@ -91,6 +91,26 @@ EOF
   )
 fi
 
+# Papel do editor SQL: entra no banco, mas só lê e muda linhas (o Masterbase dá as permissões ao subir).
+# Sem ele o editor SQL fica desligado. Instalações antigas ganham o papel ao rodar o instalador de novo.
+if ! grep -q '^MB_SQL_URL=' "$CONFIG"; then
+  DB_URL=$(sed -n 's/^DATABASE_URL=//p' "$CONFIG")
+  case "$DB_URL" in
+    postgresql://masterbase:*@127.0.0.1:5432/masterbase)
+      say "Criando o acesso do editor SQL"
+      SQL_PASS=$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')
+      if [ "$(pg_admin "SELECT 1 FROM pg_roles WHERE rolname = 'masterbase_sql'")" = 1 ]; then
+        pg_admin "ALTER ROLE masterbase_sql LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '$SQL_PASS'" >/dev/null
+      else
+        pg_admin "CREATE ROLE masterbase_sql LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '$SQL_PASS'" >/dev/null
+      fi
+      pg_admin "GRANT CONNECT ON DATABASE masterbase TO masterbase_sql" >/dev/null
+      (umask 077; echo "MB_SQL_URL=postgresql://masterbase_sql:$SQL_PASS@127.0.0.1:5432/masterbase" >> "$CONFIG"; chmod 600 "$CONFIG")
+      ;;
+    *) say "Banco próprio: para ligar o editor SQL, veja docs/instalacao.md (MB_SQL_URL)" ;;
+  esac
+fi
+
 # 3. O programa
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT

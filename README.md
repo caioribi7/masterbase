@@ -21,22 +21,22 @@
 
 O Masterbase fica na frente de um banco Postgres comum. Você cria tabelas, liga uma na outra, edita os dados como numa planilha e monta consultas escolhendo opções. O banco continua sendo Postgres de verdade: dá para conectar qualquer outra ferramenta nele quando precisar.
 
-> **Estado do projeto:** versão inicial (0.1). Funciona de ponta a ponta e tem testes, mas ainda não rodou em servidor de produção. Veja [o que falta](MVP.md#falta) antes de usar com dados importantes.
+> **Estado do projeto:** versão 0.2. Funciona de ponta a ponta e tem testes, mas ainda não rodou em servidor de produção. Veja [o que falta](MVP.md#falta) antes de usar com dados importantes.
 
 ## O que dá para fazer
 
 | | |
 |---|---|
-| **Tabelas** | Ver, filtrar, ordenar, editar célula com duplo clique, adicionar e apagar linhas, importar e exportar CSV. |
-| **Estrutura** | Criar tabelas e colunas com tipos em português (texto, número, data, sim/não...). Marcar coluna como obrigatória ou sem repetidos. |
+| **Tabelas** | Ver, filtrar, ordenar, editar célula com duplo clique, adicionar e apagar linhas, importar e exportar CSV. No celular, cada linha vira uma ficha. |
+| **Estrutura** | Criar tabelas e colunas com tipos em português (texto, número, data, sim/não...). Valor padrão, troca de tipo, coluna obrigatória ou sem repetidos. |
 | **Relações** | Ligar uma tabela a outra e ver o diagrama das ligações. |
 | **Consultas** | Montar "mostrar clientes onde plano é pro" clicando. Ver o SQL gerado. Salvar para usar de novo. |
-| **Editor SQL** | Para quem sabe SQL: escrever e rodar comandos direto no Postgres. Só administradores. |
-| **Acesso** | Três papéis: administrador, editor e leitor. |
+| **Editor SQL** | Para quem sabe SQL: ler e mudar dados com SQL, num acesso que não mexe na estrutura nem vê as contas. Só administradores. |
+| **Acesso** | Três papéis: administrador, editor e leitor. Convite e "esqueci a senha" por link de uso único. |
 | **API e chaves** | Chave para um site ou sistema ler e gravar nas tabelas. |
-| **Backups** | Backup automático todo dia, criptografado, com limpeza dos antigos. Baixar, restaurar e recuperar em outra máquina. |
+| **Backups** | Backup automático todo dia, criptografado, com limpeza dos antigos e cópia para outro disco ou nuvem. Baixar, restaurar e recuperar em outra máquina. |
 | **Atividade** | Registro de quem mudou o quê e quando. |
-| **Configurações** | Seu nome e senha, como o servidor está rodando e o endereço da documentação para IA. |
+| **Configurações** | Seu nome e senha, aparelhos conectados, tamanho do texto, nome da instância, duração da sessão e o endereço da documentação para IA. |
 
 <table>
   <tr>
@@ -81,6 +81,7 @@ O passo a passo completo está em [instalação](docs/instalacao.md).
 | `masterbase servico` | Deixa rodando sozinho (Linux com systemd). |
 | `masterbase chave-backup` | Mostra a chave que abre os backups. Guarde fora do servidor. |
 | `masterbase recuperar ARQUIVO` | Restaura um backup no banco configurado, também num servidor novo. |
+| `masterbase senha EMAIL` | Gera um link para criar senha nova, para quando ninguém consegue entrar. |
 | `masterbase versao` | Mostra a versão. |
 
 Enquanto roda, o terminal mostra uma linha por pedido e por mudança (quem fez, o quê, comandos do editor SQL). Dá para deixar o servidor parado num canto, usar pela rede e acompanhar tudo por ali.
@@ -126,7 +127,7 @@ cd web && npm ci && npm run build                       # a tela vai para web/di
 cd server && DATABASE_URL=postgresql://... cargo run    # compila com a tela dentro
 cd server && cargo test                                 # testes do servidor
 cd web && npm run dev                                   # tela com recarga ao vivo em localhost:5173
-bash dev/smoke.sh                                       # 116 checagens na API (banco novo com dev/seed.sql)
+bash dev/smoke.sh                                       # 164 checagens na API (banco novo com dev/seed.sql)
 ```
 
 A página de apresentação fica em `site/` (React e Vite, fundo animado Flux Lines do [React Bits](https://reactbits.dev)): `cd site && npm ci && npm run dev`. O `npm run build` gera arquivos estáticos em `site/dist`, que servem em qualquer hospedagem.

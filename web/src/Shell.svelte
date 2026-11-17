@@ -81,7 +81,7 @@
   .me small { color: var(--lavender-2); overflow: hidden; text-overflow: ellipsis; }
   .avatar { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; background: linear-gradient(180deg, #B3B8EE, #9AA0E0); color: var(--base); display: grid; place-items: center; font-size: 12px; font-weight: 600; }
 
-  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
   .top { height: 64px; flex-shrink: 0; padding: 0 28px; border-bottom: 1px solid var(--line); display: flex; align-items: center; }
   .crumb { font-size: 14px; color: var(--lavender-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .crumb i { font-style: normal; color: #3E4386; margin: 0 8px; }

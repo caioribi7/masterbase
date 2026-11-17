@@ -24,13 +24,15 @@ O projeto está na versão 0.x. Só o código mais recente da branch `main` rece
 - Sequestro de sessão, ou vazamento de senha, token de sessão ou chave de API.
 - Ler ou escrever arquivos fora da pasta de backups.
 - Ver a chave de recuperação dos backups sem a senha de um administrador, ou abrir um backup sem a chave.
+- Pelo editor SQL, criar ou apagar tabelas, ler o schema `masterbase` ou ganhar mais permissão que o papel de `MB_SQL_URL`.
+- Usar um link de senha vencido, já usado ou de outra pessoa.
 
 ## Limites conhecidos
 
 Já sabemos destes e eles estão em [MVP.md](MVP.md#falta). Não precisam de aviso privado:
 
-- o servidor conecta como dono do banco;
+- o servidor conecta como dono do banco (o editor SQL usa um papel à parte, só com acesso a linhas de `public`);
 - a conexão com o Postgres não usa TLS;
-- o bloqueio de tentativas de login é por e-mail, em memória, e não por IP;
+- o bloqueio de tentativas de login (por e-mail e por IP) fica em memória e zera ao reiniciar;
 - não há limite de requisições por chave de API;
 - enquanto nenhuma conta existe, quem acessar primeiro cria a conta de administrador.
