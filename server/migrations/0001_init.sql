@@ -1,5 +1,4 @@
--- Metadados do Masterbase ficam no schema próprio; dados do usuário ficam em public.
-CREATE SCHEMA IF NOT EXISTS masterbase;
+-- Metadados do Masterbase ficam no schema próprio (criado em main.rs); dados do usuário ficam em public.
 
 CREATE TABLE masterbase.users (
     id            BIGSERIAL PRIMARY KEY,

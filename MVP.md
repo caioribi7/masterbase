@@ -27,17 +27,18 @@ Postgres com tela visual. Rust no servidor, Svelte na tela.
 - Fontes servidas localmente. Nada chama Google.
 
 **Dev**
-- Postgres 17 portátil em `.dev/pgdata`, porta 54329. Senha aleatória em `.dev/database_url`. Fora do git.
+- Roda no WSL (Ubuntu 24.04): Rust + Postgres 16, porta 5432.
+- Senha aleatória em `.dev/database_url`. Fora do git.
 - `dev/seed.sql`: dados da Padaria Aurora.
+- Metadados no schema `masterbase` (inclui `_sqlx_migrations`). Tela só vê `public`.
+
+**Testado**
+- API: cadastro, login, logout, senha errada, e-mail repetido, filtro, edição, inserção, valor inválido, chave primária bloqueada, injeção em nome de tabela e coluna.
+- Navegador: login, filtro, edição por duplo clique, nova linha, paginação.
 
 ## Falta
 
-**Bloqueio atual**
-- Controle Inteligente de Aplicativos do Windows bloqueia o build do Rust. Servidor escrito, **não compilado nem testado**.
-- Solução escolhida: WSL. Rodar `wsl --install` como administrador e reiniciar.
-
 **Próximo**
-- Compilar no WSL e testar ponta a ponta.
 - Limite de tentativas no login (força bruta).
 - "Meu servidor": hoje só visual. Falta conectar a um Postgres externo.
 - Link por e-mail e chave de acesso (passkey): botões desativados.
@@ -48,22 +49,22 @@ Postgres com tela visual. Rust no servidor, Svelte na tela.
 
 **Páginas sem tela ainda**
 - Início, Estrutura, Relações, Consultas, Acesso, API e chaves, Backups, Atividade, Configurações.
-- Seletor de projetos. Responsivo da grade no celular.
+- Seletor de projetos. Responsivo: abaixo de ~900 px os botões do topo apertam.
 
 ## Rodar
 
-Postgres:
+Build do Rust fica no WSL (Windows bloqueia executável sem assinatura).
+
+Tela (Windows):
 ```
-~/pgsql/bin/pg_ctl.exe -D .dev/pgdata -o "-p 54329 -c listen_addresses=127.0.0.1" -l .dev/pg.log start
+cd web && npm install && npm run build
 ```
 
-Servidor (no WSL, depois de instalado):
+Banco + servidor (WSL, root):
 ```
-cd server && DATABASE_URL="$(cat ../.dev/database_url)" cargo run
+bash dev/wsl.sh reset   # recria banco com dados de exemplo
+bash dev/wsl.sh run     # servidor em 127.0.0.1:8080
 ```
+Abre `http://127.0.0.1:8080`.
 
-Tela:
-```
-cd web && npm install && npm run dev
-```
-Abre `http://localhost:5173`. Vite repassa `/api` para `127.0.0.1:8080`.
+Tela com recarga ao vivo: `cd web && npm run dev`, abre `http://localhost:5173`.

@@ -21,7 +21,15 @@ const PAGE: i64 = 12;
 #[tokio::main]
 async fn main() {
     let url = std::env::var("DATABASE_URL").expect("defina DATABASE_URL");
-    let db = PgPool::connect(&url).await.expect("sem conexão com o Postgres");
+    // search_path com masterbase primeiro: a tabela _sqlx_migrations fica fora de public (e fora da tela).
+    let db = sqlx::postgres::PgPoolOptions::new()
+        .after_connect(|conn, _| Box::pin(async move {
+            sqlx::Executor::execute(conn, "SET search_path = masterbase, public").await.map(|_| ())
+        }))
+        .connect(&url)
+        .await
+        .expect("sem conexão com o Postgres");
+    sqlx::query("CREATE SCHEMA IF NOT EXISTS masterbase").execute(&db).await.expect("sem permissão para criar schema");
     sqlx::migrate!().run(&db).await.expect("migração falhou");
 
     let web = std::env::var("MB_WEB_DIR").unwrap_or_else(|_| "../web/dist".into());
