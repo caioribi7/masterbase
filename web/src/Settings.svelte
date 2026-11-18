@@ -5,6 +5,8 @@
   import { loadPrefs, savePrefs, sizes } from './prefs.js';
   import { isAdmin, session } from './session.svelte.js';
   import Icon from './Icon.svelte';
+  import Modal from './Modal.svelte';
+  import { createPasskey, passkeyError, passkeySupported } from './webauthn.js';
 
   let { onAuthLost, onProfile, onLogout } = $props();
   const me = $derived(session.user);
@@ -21,6 +23,58 @@
   let showAll = $state(false);
   let prefs = $state(loadPrefs());
   let inst = $state({ name: '', session_days: 7 });
+
+  // Verificação em duas etapas
+  let mfa = $state(null); // null | { step: 'scan', qr, secret } | { step: 'codes', codes } | { step: 'off' }
+  let mfaCode = $state('');
+  let mfaErr = $state('');
+  async function mfaStart() {
+    mfaErr = ''; mfaCode = '';
+    try { mfa = { step: 'scan', ...(await api('/2fa/setup', { method: 'POST' })) }; } catch (x) { fail('sessions')(x); }
+  }
+  async function mfaEnable(e) {
+    e.preventDefault();
+    busy = 'mfa'; mfaErr = '';
+    try {
+      const r = await api('/2fa/enable', { method: 'POST', body: { code: mfaCode } });
+      mfa = { step: 'codes', codes: r.codes };
+      onProfile();
+    } catch (x) { x.status === 401 ? onAuthLost() : (mfaErr = x.message); } finally { busy = ''; }
+  }
+  async function mfaDisable(e) {
+    e.preventDefault();
+    busy = 'mfa'; mfaErr = '';
+    try {
+      await api('/2fa/disable', { method: 'POST', body: { code: mfaCode } });
+      mfa = null;
+      onProfile();
+    } catch (x) { x.status === 401 ? onAuthLost() : (mfaErr = x.message); } finally { busy = ''; }
+  }
+  let codesCopied = $state(false);
+  async function copyCodes() {
+    try { await navigator.clipboard.writeText(mfa.codes.join('\n')); codesCopied = true; } catch { codesCopied = false; }
+  }
+
+  // Passkeys
+  let pk = $state({ enabled: false, passkeys: [] });
+  let pkName = $state('');
+  let pkErr = $state('');
+  const loadPk = () => api('/passkeys').then((r) => (pk = r)).catch(() => {});
+  loadPk();
+  async function addPasskey(e) {
+    e.preventDefault();
+    busy = 'pk'; pkErr = '';
+    try {
+      const opts = await api('/passkeys/options', { method: 'POST' });
+      const answer = await createPasskey(opts);
+      await api('/passkeys', { method: 'POST', body: { name: pkName, ...answer } });
+      pkName = '';
+      await loadPk();
+    } catch (x) { x.status === 401 ? onAuthLost() : (pkErr = x.status ? x.message : passkeyError(x)); } finally { busy = ''; }
+  }
+  async function removePasskey(p) {
+    try { await api(`/passkeys/${p.id}`, { method: 'DELETE' }); await loadPk(); } catch (x) { pkErr = x.message; }
+  }
 
   const loadSessions = () => api('/sessions').then((r) => (sessions = r)).catch(fail('sessions'));
   loadSessions();
@@ -147,6 +201,45 @@
   <div class="grid">
     <div class="panel-edge"><div class="panel card">
       <div class="head-row">
+        <span class="label">Verificação em duas etapas</span>
+        {#if me.totp}<span class="badge lime">Ligada</span>{/if}
+      </div>
+      {#if me.totp}
+        <p class="hint">Ao entrar, além da senha, o Masterbase pede o código de 6 dígitos do app autenticador.</p>
+        <div><button class="glass btn" onclick={() => { mfa = { step: 'off' }; mfaCode = ''; mfaErr = ''; }}>Desligar</button></div>
+      {:else}
+        <p class="hint">Além da senha, pede um código de 6 dígitos do celular (Google Authenticator, Authy, 1Password). Quem descobrir sua senha não entra só com ela.</p>
+        <div><button class="glass btn" onclick={mfaStart}><Icon name="key" size={14} stroke="#C9CCEB" /> Ligar</button></div>
+      {/if}
+    </div></div>
+
+    <div class="panel-edge"><div class="panel card">
+      <span class="label">Passkeys</span>
+      {#if !pk.enabled}
+        <p class="hint">Entrar com a digital, o rosto ou o PIN do aparelho, sem senha. Para ligar, o painel precisa de um endereço com nome e HTTPS (MB_URL).</p>
+      {:else if !passkeySupported()}
+        <p class="hint">Este navegador não aceita passkey.</p>
+      {:else}
+        <p class="hint">Entre com a digital, o rosto ou o PIN do aparelho, sem senha. Funciona no celular, no notebook e em gerenciadores de senha.</p>
+        {#each pk.passkeys as p (p.id)}
+          <div class="kv">
+            <span class="dev">{p.name}</span>
+            <span class="sess-end"><strong class="small">{p.last_used_at ? `usada ${ago(p.last_used_at)}` : 'nunca usada'}</strong>
+              <button class="glass btn small" onclick={() => removePasskey(p)} aria-label="Apagar passkey {p.name}">Apagar</button></span>
+          </div>
+        {/each}
+        <form class="pk-add" onsubmit={addPasskey}>
+          <input class="field" bind:value={pkName} placeholder="Nome (ex.: celular)" maxlength="60" required aria-label="Nome da passkey" />
+          <button class="glass btn" disabled={busy === 'pk'}>Adicionar</button>
+        </form>
+      {/if}
+      {#if pkErr}<p class="error" role="alert">{pkErr}</p>{/if}
+    </div></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel-edge"><div class="panel card">
+      <div class="head-row">
         <span class="label">Onde você está conectado</span>
         <button class="glass btn small" onclick={logout}><Icon name="logout" size={14} stroke="#C9CCEB" /> Sair</button>
       </div>
@@ -222,7 +315,56 @@
   {/if}
 </section>
 
+{#if mfa?.step === 'scan'}
+  <Modal title="Ligar a verificação em duas etapas" onClose={() => (mfa = null)} width={480}>
+    <form class="form" onsubmit={mfaEnable}>
+      <p class="hint">1. No app autenticador, adicione uma conta e escaneie o código.</p>
+      <div class="qr">{@html mfa.qr}</div>
+      <p class="hint">Sem câmera? Digite esta chave no app: <code class="mono secret">{mfa.secret}</code></p>
+      <label class="stack"><span class="label dim">2. Código de 6 dígitos que aparece no app</span>
+        <!-- svelte-ignore a11y_autofocus -->
+        <input class="field mono code" bind:value={mfaCode} inputmode="numeric" autocomplete="one-time-code" maxlength="7" required autofocus /></label>
+      {#if mfaErr}<p class="error" role="alert">{mfaErr}</p>{/if}
+      <div class="modal-actions">
+        <button type="button" class="glass btn" onclick={() => (mfa = null)}>Cancelar</button>
+        <button class="btn-primary" disabled={busy === 'mfa'}>Ligar</button>
+      </div>
+    </form>
+  </Modal>
+{:else if mfa?.step === 'codes'}
+  <Modal title="Guarde os códigos de recuperação" onClose={() => (mfa = null)} width={480}>
+    <div class="form">
+      <p class="hint">Se perder o celular, cada um destes códigos entra uma vez no lugar do código do app. Eles aparecem só agora: guarde num gerenciador de senhas.</p>
+      <div class="codes mono">{#each mfa.codes as c}<span>{c}</span>{/each}</div>
+      <div class="modal-actions">
+        <button type="button" class="glass btn" onclick={copyCodes}>{codesCopied ? 'Copiados' : 'Copiar'}</button>
+        <button type="button" class="btn-primary" onclick={() => (mfa = null)}>Guardei</button>
+      </div>
+    </div>
+  </Modal>
+{:else if mfa?.step === 'off'}
+  <Modal title="Desligar a verificação em duas etapas" onClose={() => (mfa = null)} width={440}>
+    <form class="form" onsubmit={mfaDisable}>
+      <label class="stack"><span class="label dim">Código do app ou de recuperação</span>
+        <!-- svelte-ignore a11y_autofocus -->
+        <input class="field mono code" bind:value={mfaCode} autocomplete="one-time-code" required autofocus /></label>
+      {#if mfaErr}<p class="error" role="alert">{mfaErr}</p>{/if}
+      <div class="modal-actions">
+        <button type="button" class="glass btn" onclick={() => (mfa = null)}>Cancelar</button>
+        <button class="glass btn btn-danger solid" disabled={busy === 'mfa'}>Desligar</button>
+      </div>
+    </form>
+  </Modal>
+{/if}
+
 <style>
+  .pk-add { display: flex; gap: 10px; }
+  .pk-add .field { flex: 1; min-width: 0; }
+  .qr { align-self: center; width: 216px; height: 216px; padding: 8px; border-radius: 14px; background: #fff; }
+  .qr :global(svg) { width: 100%; height: 100%; display: block; }
+  .secret { font-size: 12px; color: var(--soft); word-break: break-all; }
+  .code { font-size: 20px; letter-spacing: .3em; text-align: center; }
+  .codes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; padding: 16px; border-radius: 12px; background: #0C0D28; font-size: 14px; color: var(--soft); user-select: all; }
   .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
   .card { padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
   .card > .label { color: var(--lavender-2); }

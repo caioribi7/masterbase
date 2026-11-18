@@ -4,15 +4,64 @@
   import { href } from './lib.js';
   import Glyph from './Glyph.svelte';
   import Icon from './Icon.svelte';
+  import Modal from './Modal.svelte';
+  import { isAdmin } from './session.svelte.js';
 
   let { onAuthLost } = $props();
   let schema = $state(null);
   let error = $state('');
   let hover = $state(null);
 
-  api('/schema')
+  const load = () => api('/schema')
     .then((r) => (schema = r))
     .catch((e) => (e.status === 401 ? onAuthLost() : (error = e.message)));
+  load();
+
+  // Arrastar o ponto de uma tabela até outra cria a ligação (uma coluna "ligação com..." na de origem).
+  let stage = $state(null);
+  let linking = $state(null); // { from, x1, y1, x2, y2 }
+  let pending = $state(null); // { from, to, name }
+  let linkError = $state('');
+  let saving = $state(false);
+  const point = (e) => { const r = stage.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  function linkStart(e, b) {
+    e.stopPropagation();
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    const [x, y] = point(e);
+    linking = { from: b.t.name, x1: b.x, y1: b.y + HEAD / 2, x2: x, y2: y };
+  }
+  function linkMove(e) {
+    if (!linking) return;
+    [linking.x2, linking.y2] = point(e);
+  }
+  function linkEnd(e) {
+    if (!linking) return;
+    const [x, y] = point(e);
+    const to = layout.boxes.find((b) => x >= b.x && x <= b.x + W && y >= b.y && y <= b.y + b.h);
+    if (to) {
+      const taken = new Set(schema.find((t) => t.name === linking.from).columns.map((c) => c.name));
+      let name = `${to.t.name}_id`;
+      for (let i = 2; taken.has(name); i++) name = `${to.t.name}_id${i}`;
+      pending = { from: linking.from, to: to.t.name, name };
+      linkError = '';
+    }
+    linking = null;
+  }
+  async function createLink(e) {
+    e.preventDefault();
+    saving = true;
+    linkError = '';
+    try {
+      await api(`/schema/${encodeURIComponent(pending.from)}/columns`, { method: 'POST', body: { name: pending.name, kind: 'ligação', link: pending.to } });
+      pending = null;
+      await load();
+    } catch (err) {
+      if (err.status === 401) return onAuthLost();
+      linkError = err.message;
+    }
+    saving = false;
+  }
 
   const W = 232, HEAD = 44, ROW = 30, GAP_X = 96, GAP_Y = 28, PAD = 8;
 
@@ -98,7 +147,7 @@
   <div class="page-head">
     <div>
       <h1 class="brand">Relações</h1>
-      <p>Como as tabelas se ligam.<span class="desk"> Arraste com o mouse para mover.</span> Para criar uma ligação, adicione uma coluna do tipo "ligação com…" na Estrutura.</p>
+      <p>Como as tabelas se ligam.<span class="desk"> Arraste o fundo para mover{#if isAdmin()} e o ponto de uma tabela até outra para ligar as duas{/if}.</span> Para criar uma ligação, adicione uma coluna do tipo "ligação com…" na Estrutura.</p>
     </div>
     <div class="actions">
       <a class="glass btn" href={href('estrutura')}><Icon name="Estrutura" size={15} stroke="#C9CCEB" /> Abrir Estrutura</a>
@@ -128,12 +177,15 @@
 
     <div class="panel-edge grow-box"><!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="panel canvas" class:grabbing onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up} onclickcapture={click}>
-      <div class="stage" style:width="{layout.width}px" style:height="{layout.height}px">
+      <div class="stage" bind:this={stage} style:width="{layout.width}px" style:height="{layout.height}px">
         <svg width={layout.width} height={layout.height} aria-hidden="true">
           {#each layout.lines as l}
             <path d={l.d} class:lit={lit(l)} />
             <circle cx={l.x2} cy={l.y2} r="4" class:lit={lit(l)} />
           {/each}
+          {#if linking}
+            <path class="drawing" d="M{linking.x1},{linking.y1} C{linking.x1 - 60},{linking.y1} {linking.x2 + 60},{linking.y2} {linking.x2},{linking.y2}" />
+          {/if}
         </svg>
         {#each layout.boxes as b (b.t.name)}
           <a class="box" class:lit={hover === b.t.name} href={href('estrutura', b.t.name)} style:left="{b.x}px" style:top="{b.y}px" style:width="{W}px"
@@ -146,6 +198,11 @@
               </span>
             {/each}
           </a>
+          {#if isAdmin()}
+            <button type="button" class="handle" style:left="{b.x - 7}px" style:top="{b.y + HEAD / 2 - 7}px"
+              aria-label="Ligar {b.t.name} a outra tabela" title="Arraste até outra tabela para ligar"
+              onpointerdown={(e) => linkStart(e, b)} onpointermove={linkMove} onpointerup={linkEnd} onpointercancel={() => (linking = null)}></button>
+          {/if}
         {/each}
       </div>
     </div></div>
@@ -154,6 +211,23 @@
     <div class="empty-state"><Glyph size={56} /><p>Nenhuma tabela ainda.</p></div>
   {/if}
 </section>
+
+{#if pending}
+  <Modal title="Ligar {pending.from} a {pending.to}" onClose={() => (pending = null)} width={460}>
+    <form class="form" onsubmit={createLink}>
+      <p class="hint">Cada linha de <strong>{pending.from}</strong> vai poder apontar para uma linha de <strong>{pending.to}</strong>. Isso cria uma coluna nova em {pending.from}.</p>
+      <label><span class="label">Nome da coluna</span>
+        <!-- svelte-ignore a11y_autofocus -->
+        <input class="field" bind:value={pending.name} required maxlength="63" autofocus />
+      </label>
+      {#if linkError}<p class="error" role="alert">{linkError}</p>{/if}
+      <div class="modal-actions">
+        <button type="button" class="glass btn" onclick={() => (pending = null)}>Cancelar</button>
+        <button class="btn-primary" disabled={saving}>Ligar</button>
+      </div>
+    </form>
+  </Modal>
+{/if}
 
 <style>
   .grow-box { flex: 1; min-height: 320px; display: flex; }
@@ -167,6 +241,10 @@
   path { fill: none; stroke: rgba(154,160,224,.45); stroke-width: 1.5; transition: stroke .18s ease-out; }
   circle { fill: #9AA0E0; transition: fill .18s ease-out; }
   path.lit { stroke: var(--lime); stroke-width: 2; }
+  path.drawing { stroke: var(--lime); stroke-width: 2; stroke-dasharray: 6 5; }
+  .handle { position: absolute; z-index: 2; width: 14px; height: 14px; padding: 0; border-radius: 50%; border: 2px solid #9AA0E0; background: #10112F; cursor: crosshair; touch-action: none; transition: background .16s ease-out, transform .16s ease-out; }
+  .handle:hover, .handle:focus-visible { background: var(--lime); border-color: var(--lime); transform: scale(1.2); }
+  .hint strong { color: var(--text); }
   circle.lit { fill: var(--lime); }
 
   .box { position: absolute; padding: 0 0 8px; border-radius: 14px; display: flex; flex-direction: column; text-decoration: none; color: var(--text); background: linear-gradient(180deg, #20235A 0%, #15173F 100%); border: 1px solid rgba(154,160,224,.32); box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 0 24px rgba(154,160,224,.08); transition: border-color .18s ease-out, box-shadow .18s ease-out; }

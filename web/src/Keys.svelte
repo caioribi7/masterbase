@@ -1,5 +1,5 @@
 <script>
-  import { api } from './api.js';
+  import { api, currentProject } from './api.js';
   import { ago } from './lib.js';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
@@ -83,7 +83,7 @@
 
   <div class="panel-edge"><div class="panel how">
     <span class="label">Como usar</span>
-    <p class="hint">Mande a chave no cabeçalho <span class="mono">Authorization</span>. Chave nunca mexe em estrutura, pessoas ou backups.{#if rate} Cada chave faz até {rate} pedidos por minuto; passou disso, o servidor responde 429 até o minuto virar.{/if}</p>
+    <p class="hint">Mande a chave no cabeçalho <span class="mono">Authorization</span>. Chave nunca mexe em estrutura, pessoas ou backups.{#if rate} Cada chave faz até {rate} pedidos por minuto; passou disso, o servidor responde 429 até o minuto virar.{/if}{#if currentProject()} Você está num projeto à parte: mande também o cabeçalho <span class="mono">X-MB-Project: {currentProject()}</span>, senão a chave lê o banco principal.{/if}</p>
     <span class="cap">Ler linhas (com filtro e ordem)</span>
     <pre class="code">curl -H "Authorization: Bearer SUA_CHAVE" \
   "{base}?page=1&sort=id&desc=true"</pre>

@@ -36,9 +36,12 @@
 
 <svelte:window onhashchange={() => (route = parseHash())} />
 
-{#if route.page === 'senha' && route.arg}
+{#if route.page === 'link' && route.arg}
+  <!-- Link de entrar por e-mail. -->
+  <Login magic={route.arg} onDone={loadMe} />
+{:else if route.page === 'senha' && route.arg}
   <!-- Link de criar senha: abre mesmo com alguém logado neste navegador. -->
-  <Login token={route.arg} onDone={() => { location.hash = '#/inicio'; loadMe(); }} />
+  <Login token={route.arg} onDone={loadMe} />
 {:else if user === null}
   <Login onDone={loadMe} />
 {:else if user}

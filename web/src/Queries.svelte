@@ -21,6 +21,9 @@
   let saving = $state(false);
   let saveName = $state('');
   let showSql = $state(false);
+  let showChart = $state(false);
+  let groupBy = $state(null); // coluna do gráfico
+  let measure = $state(''); // '' = quantidade, ou nome de coluna numérica para somar
 
   // Título de cada ficha no celular: a primeira coluna de texto (nome), senão a primeira.
   const titleCol = $derived(result?.columns.find((c) => c.label === 'texto') ?? result?.columns[0]);
@@ -100,6 +103,34 @@
       fail(err);
     }
   }
+
+  // Gráfico rápido: agrupa as linhas do resultado por uma coluna e conta (ou soma uma coluna numérica).
+  const numeric = $derived(result?.columns.filter((c) => !c.pk && (c.label === 'número' || c.label === 'decimal')) ?? []);
+  // Coluna padrão: a que repete mais (menos valores distintos, mas mais de um).
+  const bestGroup = $derived.by(() => {
+    if (!result?.rows.length) return null;
+    const scored = result.columns
+      .filter((c) => !c.pk)
+      .map((c) => [c.name, new Set(result.rows.map((r) => show(r[c.name]))).size])
+      .filter(([, k]) => k > 1 && k < result.rows.length);
+    scored.sort((a, b) => a[1] - b[1]);
+    return scored[0]?.[0] ?? result.columns[0]?.name;
+  });
+  const bars = $derived.by(() => {
+    const col = groupBy ?? bestGroup;
+    if (!result || !col) return [];
+    const sums = new Map();
+    for (const r of result.rows) {
+      const k = show(r[col]);
+      const v = measure ? Number(r[measure]) || 0 : 1;
+      sums.set(k, (sums.get(k) ?? 0) + v);
+    }
+    const all = [...sums].sort((a, b) => b[1] - a[1]);
+    const top = all.slice(0, 12);
+    if (all.length > 12) top.push(['outros', all.slice(12).reduce((t, [, v]) => t + v, 0)]);
+    const max = Math.max(...top.map(([, v]) => v), 1);
+    return top.map(([label, value]) => ({ label, value, pct: (value / max) * 100 }));
+  });
 
   function show(v) {
     if (v == null) return '—';
@@ -188,8 +219,36 @@
     <div class="tools">
       <span class="count">{n(result.rows.length)} {result.rows.length === 1 ? 'linha' : 'linhas'}{result.rows.length >= (Number(spec.limit) || 100) ? ' (limite atingido)' : ''}</span>
       <span class="grow"></span>
+      {#if result.rows.length > 1}<button class="glass btn small" aria-expanded={showChart} onclick={() => (showChart = !showChart)}>{showChart ? 'Esconder gráfico' : 'Gráfico'}</button>{/if}
       <button class="glass btn small" aria-expanded={showSql} onclick={() => (showSql = !showSql)}>{showSql ? 'Esconder SQL' : 'Ver SQL'}</button>
     </div>
+    {#if showChart && result.rows.length > 1}
+      <div class="panel-edge"><div class="panel chart">
+        <div class="chart-opts">
+          <label><span class="word">Agrupar por</span>
+            <select class="field small" value={groupBy ?? bestGroup} onchange={(e) => (groupBy = e.currentTarget.value)}>
+              {#each result.columns as c}<option value={c.name}>{c.name}</option>{/each}
+            </select>
+          </label>
+          <label><span class="word">e mostrar</span>
+            <select class="field small" bind:value={measure}>
+              <option value="">quantidade de linhas</option>
+              {#each numeric as c}<option value={c.name}>soma de {c.name}</option>{/each}
+            </select>
+          </label>
+        </div>
+        <ul class="bars" aria-label="Gráfico">
+          {#each bars as b (b.label)}
+            <li>
+              <span class="bar-label" title={b.label}>{b.label}</span>
+              <span class="bar-track"><span class="bar-fill" style:width="{b.pct}%"></span></span>
+              <span class="bar-value mono">{n(Math.round(b.value * 100) / 100)}</span>
+            </li>
+          {/each}
+        </ul>
+        <p class="hint">Conta as {n(result.rows.length)} linhas deste resultado. Para incluir mais, aumente o "até" e rode de novo.</p>
+      </div></div>
+    {/if}
     {#if showSql}<pre class="code">{result.sql}</pre>{/if}
     <div class="cards">
       {#each result.rows as row, i (i)}
@@ -253,6 +312,17 @@
   button:disabled { opacity: .6; }
   .grp, .acts { display: inline-flex; align-items: center; gap: 10px; }
 
+  .chart { padding: 18px 20px; display: flex; flex-direction: column; gap: 16px; }
+  .chart-opts { display: flex; flex-wrap: wrap; gap: 10px 20px; }
+  .chart-opts label { display: inline-flex; align-items: center; gap: 10px; }
+  .chart-opts .field { width: 190px; }
+  .bars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .bars li { display: grid; grid-template-columns: minmax(80px, 180px) 1fr auto; align-items: center; gap: 12px; font-size: 13px; }
+  .bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--soft); }
+  .bar-track { height: 14px; border-radius: 7px; background: rgba(154,160,224,.08); overflow: hidden; }
+  .bar-fill { display: block; height: 100%; min-width: 3px; border-radius: 7px; background: linear-gradient(90deg, #5A60C8, #9AA0E0); box-shadow: 0 0 12px rgba(154,160,224,.3); transition: width .3s ease-out; }
+  .bar-value { min-width: 40px; text-align: right; font-size: 12px; color: var(--lavender-2); }
+
   .cards { display: none; flex-direction: column; gap: 10px; }
   .card-edge { padding: 1px; border-radius: 16px; background: var(--edge); }
   .card { border-radius: 15px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; background: linear-gradient(180deg, #17194A 0%, #11123A 100%); box-shadow: var(--inner); }
@@ -281,5 +351,9 @@
     .del { opacity: 1; }
     .cards { display: flex; }
     .grid-view { display: none; }
+    .chart { padding: 16px; }
+    .chart-opts label { width: 100%; }
+    .chart-opts .field { flex: 1; width: auto; min-width: 0; }
+    .bars li { grid-template-columns: 96px 1fr auto; gap: 8px; }
   }
 </style>

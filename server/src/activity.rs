@@ -79,14 +79,14 @@ pub async fn list(_user: User, State(db): State<PgPool>, Query(q): Query<Activit
     Ok(Json(json!({ "items": items, "more": more })))
 }
 
-pub async fn overview(_user: User, State(db): State<PgPool>) -> ApiResult<Json<Value>> {
-    let (size, version, users): (String, String, i64) = sqlx::query_as(
-        "SELECT pg_size_pretty(pg_database_size(current_database())), current_setting('server_version'),
-                (SELECT count(*) FROM masterbase.users)",
-    )
-    .fetch_one(&db)
-    .await?;
-    let tables = table_counts(&db).await?;
+pub async fn overview(user: User, p: crate::projects::Db) -> ApiResult<Json<Value>> {
+    let db = p.meta.clone();
+    let (size, version): (String, String) =
+        sqlx::query_as("SELECT pg_size_pretty(pg_database_size(current_database())), current_setting('server_version')")
+            .fetch_one(&p.data)
+            .await?;
+    let users: i64 = sqlx::query_scalar("SELECT count(*) FROM masterbase.users").fetch_one(&db).await?;
+    let tables = table_counts(&p.data, crate::rules::all_for(&p, &user).await?.as_ref()).await?;
     let rows: i64 = tables.iter().map(|t| t.1).sum();
     let tables: Vec<Value> = tables.into_iter().map(|(name, rows)| json!({ "name": name, "rows": rows })).collect();
     let recent = recent(&db, None, None, 6).await?;

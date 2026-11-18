@@ -21,6 +21,7 @@
   let renameTo = $state('');
   let dropConfirm = $state('');
   let editCol = $state(null); // { col, name, kind, required, def, defValue }
+  let ownerCol = $state(''); // regra por linha: coluna com o e-mail do dono, '' = todo mundo vê tudo
 
   // Valor padrão: o que cada tipo aceita além de "nenhum" e "fixo".
   const timeKinds = ['data', 'data e hora'];
@@ -128,6 +129,13 @@
     act(() => api(colUrl(dropCol.name), { method: 'DELETE' }));
   }
 
+  // Colunas que podem guardar o e-mail do dono: as de texto.
+  const ownerOptions = $derived(current?.columns.filter((c) => !c.pk && !c.link && ['texto', 'e-mail'].includes(c.label)) ?? []);
+  function saveOwner(e) {
+    e.preventDefault();
+    act(() => api(`/schema/${t()}/owner`, { method: 'PUT', body: { column: ownerCol || null } }));
+  }
+
   function openEdit(c) {
     const d = c.default;
     const def = !d ? 'nenhum' : d.mode === 'hoje' ? 'agora' : ['fixo', 'agora', 'id novo'].includes(d.mode) ? d.mode : 'outro';
@@ -186,6 +194,7 @@
         <div class="col-row">
           <span class="col-name">
             <strong>{c.name}</strong>
+            {#if current.owner === c.name}<span class="badge" title="Guarda o e-mail de quem é dono da linha">dono da linha</span>{/if}
           </span>
           <span>
             {#if c.link}<a class="badge" href={href('estrutura', c.link)}><Icon name="link" size={12} /> {c.link}</a>
@@ -206,6 +215,18 @@
           </span>
         </div>
       {/each}
+    </div></div>
+
+    <div class="panel-edge rule"><div class="panel rule-body">
+      <div>
+        <span class="label">Quem vê as linhas</span>
+        {#if current.owner}
+          <p class="msg">Editores e leitores veem e mexem só nas linhas em que <strong>{current.owner}</strong> tem o e-mail deles. Linha nova já sai com o e-mail de quem criou. Administradores veem tudo.</p>
+        {:else}
+          <p class="msg">Todo mundo com acesso vê todas as linhas. Dá para limitar: cada pessoa vê só as linhas com o e-mail dela numa coluna (ex.: vendedor só vê os próprios pedidos).</p>
+        {/if}
+      </div>
+      {#if isAdmin()}<button class="glass btn" onclick={() => { ownerCol = current.owner ?? ''; modal = 'owner'; }}><Icon name="pencil" size={15} stroke="#C9CCEB" /> Mudar</button>{/if}
     </div></div>
   {:else if schema}
     <div class="empty-state">
@@ -324,6 +345,27 @@
       </div>
     </form>
   </Modal>
+{:else if modal === 'owner'}
+  <Modal title="Quem vê as linhas de {current.name}" onClose={close} width={500}>
+    <form class="form" onsubmit={saveOwner}>
+      <label class="stack"><span class="label">Regra</span>
+        <select class="field" bind:value={ownerCol}>
+          <option value="">Todo mundo vê todas as linhas</option>
+          {#each ownerOptions as c}<option value={c.name}>Cada um vê só as linhas com o e-mail dele em {c.name}</option>{/each}
+        </select>
+      </label>
+      {#if !ownerOptions.length}
+        <p class="hint">Esta tabela não tem coluna de texto. Crie uma (ex.: vendedor) com o e-mail de quem é dono de cada linha.</p>
+      {:else if ownerCol}
+        <p class="hint">A coluna {ownerCol} precisa ter o e-mail da conta de cada pessoa, igual ao do login. Linhas sem e-mail ali só o administrador vê. Vale também para chaves de API.</p>
+      {/if}
+      {#if formError}<p class="error" role="alert">{formError}</p>{/if}
+      <div class="modal-actions">
+        <button type="button" class="glass btn" onclick={close}>Cancelar</button>
+        <button class="btn-primary" disabled={busy || (ownerCol || null) === (current.owner ?? null)}>Salvar</button>
+      </div>
+    </form>
+  </Modal>
 {:else if modal === 'rename'}
   <Modal title="Renomear tabela" onClose={close} width={440}>
     <form class="form" onsubmit={renameTable}>
@@ -381,6 +423,9 @@
   a.badge:hover { border-color: rgba(154,160,224,.6); }
   .rules { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .end { display: flex; justify-content: flex-end; gap: 4px; }
+  .rule { margin-top: 16px; }
+  .rule-body { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px; }
+  .rule-body .msg { margin-top: 8px; font-size: 14px; max-width: 720px; }
   .danger:hover:not(:disabled) { color: var(--err); border-color: rgba(255,122,138,.4); }
 
   .form { display: flex; flex-direction: column; gap: 16px; }
@@ -399,5 +444,6 @@
     .cols-head { display: none; }
     .col-row { grid-template-columns: 1fr auto; padding: 12px 16px; gap: 8px; }
     .col-form { grid-template-columns: 1fr 1fr; }
+    .rule-body { flex-direction: column; align-items: flex-start; }
   }
 </style>

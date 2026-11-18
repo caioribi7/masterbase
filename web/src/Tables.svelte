@@ -94,8 +94,11 @@
     selected = s;
   }
 
+  // Coluna que a pessoa não preenche: a chave e, com regra por linha, a do dono (vem do e-mail dela).
+  const fixed = (c) => c.pk || c.name === data?.owner;
+
   function startEdit(i, col) {
-    if (col.pk || !pk || !canEdit()) return;
+    if (fixed(col) || !pk || !canEdit()) return;
     const v = data.rows[i][col.name];
     editing = { rowIndex: i, col: col.name, value: v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v) };
   }
@@ -140,14 +143,14 @@
   }
 
   function openRow(i) {
-    const cols = data.columns.filter((c) => !c.pk);
+    const cols = data.columns.filter((c) => !fixed(c));
     const row = i == null ? null : data.rows[i];
     rowForm = { index: i, values: Object.fromEntries(cols.map((c) => [c.name, row ? asText(row[c.name]) : ''])), busy: false, error: '' };
   }
 
   function newRow() {
     if (phone()) return openRow(null);
-    adding = Object.fromEntries(data.columns.filter((c) => !c.pk).map((c) => [c.name, '']));
+    adding = Object.fromEntries(data.columns.filter((c) => !fixed(c)).map((c) => [c.name, '']));
   }
 
   // Linha nova: um POST. Linha existente: um PATCH por campo que mudou.
@@ -254,7 +257,10 @@
 {#if data}
   <section class="content">
     <div class="page-head">
-      <h1 class="brand">{current}</h1>
+      <div>
+        <h1 class="brand">{current}</h1>
+        {#if data?.owner}<p>Você vê só as linhas com o seu e-mail em {data.owner}.</p>{/if}
+      </div>
       <div class="actions">
         {#if selected.size && canEdit()}
           <button class="glass btn btn-danger" onclick={() => (confirmDelete = true)}><Icon name="trash" size={15} /> Apagar {selected.size}</button>
@@ -306,7 +312,7 @@
       <span class="grow"></span>
       {#if error}<span class="error" role="alert">{error}</span>{/if}
       {#if notice}<span class="notice" role="status">{notice}</span>{/if}
-      <span class="count">{n(data.total)} {data.total === 1 ? 'linha' : 'linhas'}</span>
+      <span class="count">{data.approx ? 'cerca de ' : ''}{n(data.total)} {data.total === 1 ? 'linha' : 'linhas'}</span>
     </div>
 
     <!-- Celular: uma ficha por linha. Toque para ver e editar tudo. -->
@@ -363,6 +369,7 @@
                   {#each data.columns as c}
                     <td>
                       {#if c.pk}<span class="dim mono">auto</span>
+                      {:else if c.name === data.owner}<span class="dim">você</span>
                       {:else}<input class="cell-input" bind:value={adding[c.name]} placeholder={(c.link ? `id em ${c.link}` : c.label) + (c.required ? " *" : "")} aria-label={c.name} />{/if}
                     </td>
                   {/each}
@@ -418,7 +425,7 @@
 {#if rowForm}
   <Modal title={rowForm.index == null ? `Nova linha em ${current}` : rowTitle(data.rows[rowForm.index])} onClose={() => (rowForm = null)} width={520}>
     <form class="form" onsubmit={saveRow}>
-      {#each data.columns.filter((c) => !c.pk) as c}
+      {#each data.columns.filter((c) => !fixed(c)) as c}
         <label class="stack">
           <span class="label">{c.name}{c.required ? ' *' : ''} <small class="mono">{c.link ? `id em ${c.link}` : c.label}</small></span>
           {#if c.label === 'sim/não'}

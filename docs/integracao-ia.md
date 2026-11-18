@@ -27,6 +27,10 @@ Authorization: Bearer mb_<64 hex chars>
 
 A key can never change table structure, users, keys or backups, and cannot use the SQL editor. Keep the key on the server side (backend, serverless function, env var). Never ship it to a browser or mobile app.
 
+**Projects.** One Masterbase can hold several databases. Without extra headers the key works on the main one. To use another project, also send `X-MB-Project: <id>` (the panel shows the id on the API page while that project is open). An unknown id answers 404.
+
+**Row rules.** A table may be limited per person: the key then sees and changes only rows whose owner column holds the e-mail of the key's account, and new or imported rows get that e-mail automatically. Reads return `"owner": "<column>"` when this applies.
+
 ## Errors
 
 Non-2xx responses have this body:
@@ -113,8 +117,10 @@ Query parameters (all optional):
   "columns": [{ "name": "id", "label": "número", "type": "bigint", "pk": true, "required": true, "unique": true, "link": null }],
   "rows": [{ "id": 1, "nome": "Café Bom Dia", "cidade": "Curitiba" }],
   "total": 17,
+  "approx": false,
   "page": 1,
-  "pages": 2
+  "pages": 2,
+  "owner": null
 }
 ```
 

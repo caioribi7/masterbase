@@ -16,6 +16,10 @@ Uma chave **só lê** ou **lê e edita linhas**. Chave nenhuma mexe em estrutura
 
 Nos exemplos, `$URL` é o endereço do seu Masterbase e `$CHAVE` é a chave.
 
+**Outro projeto.** Sem mais nada, a chave usa o banco principal. Para outro projeto, mande também `X-MB-Project: ID` (a página **API e chaves** mostra o número com o projeto aberto).
+
+**Regra por linha.** Se a tabela tem a regra ligada na Estrutura, a chave só vê e muda as linhas com o e-mail da conta dona da chave, e linha nova já sai com esse e-mail.
+
 ## Respostas e erros
 
 Tudo é JSON. Erro vem com o status HTTP e uma frase:

@@ -11,6 +11,7 @@ Para quem vai usar o Masterbase no dia a dia. Não precisa saber SQL. Se você a
 - [Consultas](#consultas)
 - [Editor SQL](#editor-sql)
 - [Dar acesso a outras pessoas](#dar-acesso-a-outras-pessoas)
+- [Vários projetos](#vários-projetos)
 - [Chaves de API](#chaves-de-api)
 - [Backups](#backups)
 - [Atividade](#atividade)
@@ -164,9 +165,35 @@ Se quem esqueceu é o único administrador, quem tem acesso ao servidor roda:
 masterbase senha seu-email@empresa.com
 ```
 
-O comando mostra o link. O Masterbase não manda e-mail sozinho: o link sempre passa pela mão de alguém.
+O comando mostra o link. Com e-mail configurado ([login e e-mail](login-e-email.md)), "Esqueci a senha" na tela de login manda o link direto para a pessoa.
 
 Você não consegue mudar o próprio papel nem se desativar. É de propósito: evita que o banco fique sem administrador.
+
+### Quem vê as linhas
+
+Às vezes cada pessoa deve ver só o que é dela: o vendedor vê os próprios pedidos, o técnico vê os próprios chamados. Para isso:
+
+1. Na tabela, tenha uma coluna de texto com o e-mail de quem é dono de cada linha (ex.: `vendedor`). O e-mail tem que ser o mesmo do login da pessoa.
+2. Em **Estrutura**, abra a tabela e, em **Quem vê as linhas**, clique em **Mudar** e escolha essa coluna.
+
+A partir daí, editores e leitores veem, contam, consultam, editam e apagam só as linhas com o e-mail deles. Linha nova e linha importada já saem com o e-mail de quem criou. Administradores continuam vendo tudo. Vale também para chaves de API (com o e-mail da conta dona da chave).
+
+### Entrar sem senha e verificação em duas etapas
+
+Em **Configurações**, cada pessoa pode:
+
+- **ligar a verificação em duas etapas:** leia o QR com o Google Authenticator, Authy ou 1Password e digite o código. Guarde os 10 códigos de recuperação: cada um entra uma vez, se o celular sumir. Depois disso, além da senha, o login pede o código do app;
+- **adicionar uma passkey:** a digital, o rosto ou o PIN do aparelho viram a forma de entrar, sem senha. Precisa do painel num endereço com nome e HTTPS (`MB_URL`).
+
+Com e-mail configurado, a tela de login também tem **Link por e-mail**: o Masterbase manda um link que entra direto, vale 15 minutos e funciona uma vez.
+
+Se alguém perdeu o celular e os códigos, um administrador clica em **Desligar 2 etapas** na linha da pessoa, em **Acesso**.
+
+## Vários projetos
+
+Um Masterbase pode abrir mais de um banco. Clique no cartão do projeto, no alto do menu, para ver a lista e trocar. O administrador conecta outro banco em **Conectar outro banco**, com um nome e o endereço `postgres://usuario:senha@host:5432/banco`. O Masterbase testa a conexão antes de guardar.
+
+No projeto aberto, Tabelas, Estrutura, Relações, Consultas, Editor SQL e Início mostram aquele banco. Pessoas, chaves, atividade e backups são do Masterbase inteiro e ficam no banco principal: os backups cobrem só ele. **Tirar** um projeto só desconecta; o banco e os dados continuam onde estão.
 
 ## Chaves de API
 

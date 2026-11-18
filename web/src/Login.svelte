@@ -2,15 +2,21 @@
   import { untrack } from 'svelte';
   import { api } from './api.js';
   import Glyph from './Glyph.svelte';
+  import { getPasskey, passkeyError, passkeySupported } from './webauthn.js';
 
-  let { onDone, token = null } = $props();
+  // token: link de criar senha (#/senha/...). magic: link de entrar (#/link/...).
+  let { onDone, token = null, magic = null } = $props();
   const link = untrack(() => token); // o link não muda enquanto a tela está aberta
+  const magicLink = untrack(() => magic);
 
-  let mode = $state(link ? 'reset' : 'login'); // 'login' | 'signup' | 'reset' | 'forgot'
+  let mode = $state(link ? 'reset' : magicLink ? 'magic-use' : 'login'); // login | signup | reset | forgot | magic | magic-use | code
   let forgot = $state(false);
   let sent = $state(false);
   let oauth = $state([]); // provedores ligados no servidor
   let mail = $state(false); // servidor manda e-mail
+  let passkey = $state(false); // servidor aceita passkey
+  let ticket = $state(''); // senha conferida, falta o código do app
+  let code = $state('');
   let name = $state('');
   let email = $state('');
   let password = $state('');
@@ -23,7 +29,7 @@
   let linkError = $state('');
 
   // Sem nenhuma conta, a tela abre no cadastro: a primeira pessoa administra a instância.
-  api('/setup').then((r) => { instance = r.name; signupOpen = r.signup; oauth = r.oauth ?? []; mail = r.mail; if (r.signup && !link) mode = 'signup'; }).catch(() => {});
+  api('/setup').then((r) => { instance = r.name; signupOpen = r.signup; oauth = r.oauth ?? []; mail = r.mail; passkey = r.passkey && passkeySupported(); if (r.signup && !link) mode = 'signup'; }).catch(() => {});
 
   // Volta do Google/GitHub com erro: #/entrar?erro=...
   const oauthErrors = {
@@ -38,10 +44,48 @@
     error = oauthErrors[back[1]] ?? oauthErrors.falhou;
     history.replaceState(null, '', '#/');
   }
+  // Google/GitHub conferiu, falta o código: #/entrar?fator=TICKET
+  const factor = location.hash.match(/fator=([0-9a-f]+)/);
+  if (factor && !link) {
+    ticket = factor[1];
+    mode = 'code';
+    history.replaceState(null, '', '#/');
+  }
+
+  // Resposta de um passo de login: ou entrou, ou falta o código do app.
+  function next(r) {
+    if (r?.second_factor) {
+      ticket = r.ticket;
+      code = '';
+      mode = 'code';
+      return;
+    }
+    if (magicLink || link) location.hash = '#/inicio';
+    onDone();
+  }
+
+  // Link de entrar: usa assim que a tela abre.
+  if (magicLink) {
+    api('/magic/use', { method: 'POST', body: { token: magicLink } }).then(next).catch((e) => (linkError = e.message));
+  }
+
+  async function withPasskey() {
+    busy = true;
+    error = '';
+    try {
+      const opts = await api('/passkeys/login/options', { method: 'POST' });
+      const answer = await getPasskey(opts);
+      next(await api('/passkeys/login', { method: 'POST', body: answer }));
+    } catch (e) {
+      error = e.status ? e.message : passkeyError(e);
+    } finally {
+      busy = false;
+    }
+  }
   const providers = { google: 'Google', github: 'GitHub' };
   if (link) api('/reset/check', { method: 'POST', body: { token: link } }).then((r) => (target = r)).catch((e) => (linkError = e.message));
 
-  const titles = { login: 'Entrar no Masterbase', signup: 'Criar conta', reset: 'Criar senha', forgot: 'Esqueci a senha' };
+  const titles = { login: 'Entrar no Masterbase', signup: 'Criar conta', reset: 'Criar senha', forgot: 'Esqueci a senha', magic: 'Entrar com link', 'magic-use': 'Entrando…', code: 'Código de verificação' };
   const to = (m) => { mode = m; error = ''; sent = false; };
 
   async function submit(e) {
@@ -49,14 +93,14 @@
     busy = true;
     error = '';
     try {
-      if (mode === 'forgot') {
-        await api('/forgot', { method: 'POST', body: { email } });
+      if (mode === 'forgot' || mode === 'magic') {
+        await api(mode === 'forgot' ? '/forgot' : '/magic', { method: 'POST', body: { email } });
         sent = true;
         return;
       }
-      if (mode === 'reset') await api('/reset', { method: 'POST', body: { token: link, password } });
-      else await api(`/${mode}`, { method: 'POST', body: mode === 'signup' ? { name, email, password } : { email, password } });
-      onDone();
+      if (mode === 'code') return next(await api('/login/2fa', { method: 'POST', body: { ticket, code } }));
+      if (mode === 'reset') return next(await api('/reset', { method: 'POST', body: { token: link, password } }));
+      next(await api(`/${mode}`, { method: 'POST', body: mode === 'signup' ? { name, email, password } : { email, password } }));
     } catch (err) {
       error = err.message;
     } finally {
@@ -76,12 +120,15 @@
         {#if mode === 'login'}Use o e-mail e a senha da sua conta.
         {:else if mode === 'signup'}Primeiro acesso. Essa conta vai administrar o Masterbase.
         {:else if mode === 'forgot'}Mandamos um link para você criar uma senha nova.
+        {:else if mode === 'magic'}Mandamos um link que entra direto, sem senha.
+        {:else if mode === 'code'}Abra o app autenticador e digite o código de 6 dígitos.
+        {:else if mode === 'magic-use'}{linkError ? '' : 'Conferindo o link…'}
         {:else if target}Para <strong>{target.name}</strong> · {target.email}
         {:else if !linkError}Conferindo o link…{/if}
       </p>
     </div>
 
-    {#if mode === 'reset' && linkError}
+    {#if (mode === 'reset' || mode === 'magic-use') && linkError}
       <div class="edge"><div class="card">
         <p class="error" role="alert">{linkError}</p>
         <a class="glass btn" href="#/inicio">Ir para o login</a>
@@ -96,7 +143,14 @@
           </label>
         {/if}
 
-        {#if mode !== 'reset'}
+        {#if mode === 'code'}
+        <label>
+          <span class="label">Código</span>
+          <!-- svelte-ignore a11y_autofocus -->
+          <input class="field code" bind:value={code} inputmode="numeric" autocomplete="one-time-code" required autofocus />
+        </label>
+        <p class="hint">Perdeu o celular? Use um dos códigos de recuperação no lugar.</p>
+        {:else if mode !== 'reset'}
         <label>
           <span class="label">E-mail</span>
           <input class="field" type="email" bind:value={email} autocomplete="email" required />
@@ -106,7 +160,7 @@
           <input type="email" value={target.email} autocomplete="username" hidden readonly />
         {/if}
 
-        {#if mode !== 'forgot'}
+        {#if mode !== 'forgot' && mode !== 'magic' && mode !== 'code'}
         <label>
           <span class="row"><span class="label">{mode === 'reset' ? 'Senha nova (10 ou mais caracteres)' : 'Senha'}</span>{#if mode === 'login'}<button type="button" class="link" onclick={() => (mail ? to('forgot') : (forgot = !forgot))}>Esqueci a senha</button>{/if}</span>
           <span class="pw">
@@ -121,7 +175,18 @@
 
         {#if sent}<p class="ok" role="status">Se esse e-mail tiver conta, o link chega em instantes. Olhe também o spam.</p>{/if}
 
-        <button class="btn-primary submit" disabled={busy || (mode === 'reset' && !target)}>{({ login: 'Entrar', signup: 'Criar conta', reset: 'Salvar senha e entrar', forgot: sent ? 'Mandar de novo' : 'Mandar link' })[mode]}</button>
+        <button class="btn-primary submit" disabled={busy || (mode === 'reset' && !target)}>{({ login: 'Entrar', signup: 'Criar conta', reset: 'Salvar senha e entrar', forgot: sent ? 'Mandar de novo' : 'Mandar link', magic: sent ? 'Mandar de novo' : 'Mandar link', code: 'Confirmar' })[mode]}</button>
+
+        {#if mode === 'login' && (passkey || mail)}
+          <div class="alt">
+            {#if passkey}<button type="button" class="glass btn provider" onclick={withPasskey} disabled={busy}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M3 20a6 6 0 0 1 9.5-4.9"/><circle cx="17.5" cy="15.5" r="2.5"/><path d="M17.5 18v3.5M17.5 20.5h1.5"/></svg>
+              Passkey</button>{/if}
+            {#if mail}<button type="button" class="glass btn provider" onclick={() => to('magic')}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+              Link por e-mail</button>{/if}
+          </div>
+        {/if}
 
         {#if mode === 'login' && oauth.length}
           <div class="or"><span>ou</span></div>
@@ -143,8 +208,8 @@
     </div>
     {/if}
 
-    {#if mode === 'forgot'}
-    <p class="switch">Lembrou? <button type="button" onclick={() => to('login')}>Voltar para o login</button></p>
+    {#if mode === 'forgot' || mode === 'magic' || mode === 'code'}
+    <p class="switch">{mode === 'forgot' ? 'Lembrou?' : 'Mudou de ideia?'} <button type="button" onclick={() => to('login')}>Voltar para o login</button></p>
     {:else if signupOpen && mode !== 'reset'}
     <p class="switch">
       {#if mode === 'login'}
@@ -184,7 +249,7 @@
   .link { font-size: 13px; color: var(--soft); background: none; border: 0; padding: 0; }
   .link:hover { color: var(--text); }
   .hint { font-size: 13px; line-height: 20px; color: var(--lavender); }
-  .hint code { font-family: var(--mono); font-size: 12px; color: var(--soft); }
+  .hint code { font-family: 'Martian Mono', monospace; font-size: 12px; color: var(--soft); }
   .intro strong { color: var(--text); font-weight: 600; }
   .card .btn { align-self: flex-start; }
 
@@ -199,6 +264,8 @@
   .or { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--lavender); }
   .or::before, .or::after { content: ''; flex: 1; height: 1px; background: rgba(154,160,224,.18); }
   .providers { display: flex; gap: 10px; }
+  .alt { display: flex; gap: 10px; }
+  .code { font-family: 'Martian Mono', monospace; font-size: 22px; letter-spacing: .3em; text-align: center; }
   .provider { flex: 1; height: 44px; justify-content: center; gap: 10px; white-space: nowrap; }
 
   .switch { font-size: 14px; color: var(--lavender); }

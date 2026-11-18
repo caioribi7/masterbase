@@ -10,7 +10,7 @@ repository = "https://github.com/caioribi7/masterbase"
 axum = "0.8"
 axum-extra = { version = "0.10", features = ["cookie"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "process", "fs", "time"] }
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "json", "macros", "migrate"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "json", "macros", "migrate", "tls-rustls-ring-webpki"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 argon2 = "0.5"
@@ -25,6 +25,12 @@ rust-embed = { version = "8", features = ["mime-guess"] }
 tower-http = { version = "0.6", features = ["fs", "set-header"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
+hmac = "0.12"
+sha1 = "0.10"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+ciborium = "0.2"
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+base64 = "0.22"
 
 [lints.rust]
 unsafe_code = "forbid"

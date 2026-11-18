@@ -52,6 +52,37 @@ pub async fn send(to: &str, subject: &str, body: String) -> Result<(), String> {
     transport()?.send(msg).await.map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// Link para entrar sem senha. Vale 15 minutos, uma vez.
+pub async fn magic_link(db: &PgPool, user_id: i64, token: &str) -> bool {
+    let (Some(url), true) = (public_url(), enabled()) else { return false };
+    let row: Result<(String, String, String), _> = sqlx::query_as(
+        "SELECT u.name, u.email, coalesce(nullif((SELECT s.name FROM masterbase.settings s), ''), 'Masterbase')
+         FROM masterbase.users u WHERE u.id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(db)
+    .await;
+    let Ok((name, email, instance)) = row else { return false };
+    let body = format!(
+        "Oi, {name}.
+
+Para entrar no {instance}, abra este link:
+
+{url}/#/link/{token}
+
+         Ele vale 15 minutos e funciona uma vez só.
+
+Se não foi você que pediu, ignore este e-mail: ninguém entra sem abrir o link."
+    );
+    match send(&email, &format!("Entrar no {instance}"), body).await {
+        Ok(()) => true,
+        Err(e) => {
+            eprintln!("{} e-mail para {email} não saiu: {e}", crate::activity::clock());
+            false
+        }
+    }
+}
+
 /// Manda o link de criar senha. `invite`: conta nova. Devolve se saiu.
 pub async fn password_link(db: &PgPool, user_id: i64, token: &str, invite: bool) -> bool {
     let (Some(url), true) = (public_url(), enabled()) else { return false };

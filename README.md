@@ -129,7 +129,7 @@ cd web && npm ci && npm run build                       # a tela vai para web/di
 cd server && DATABASE_URL=postgresql://... cargo run    # compila com a tela dentro
 cd server && cargo test                                 # testes do servidor
 cd web && npm run dev                                   # tela com recarga ao vivo em localhost:5173
-bash dev/smoke.sh                                       # 178 checagens na API (banco novo com dev/seed.sql)
+bash dev/smoke.sh                                       # 250 checagens na API (banco novo com dev/seed.sql)
 ```
 
 A página de apresentação fica em `site/` (React e Vite, fundo animado Flux Lines do [React Bits](https://reactbits.dev)): `cd site && npm ci && npm run dev`. O `npm run build` gera arquivos estáticos em `site/dist`, que servem em qualquer hospedagem.

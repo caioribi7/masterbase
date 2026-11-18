@@ -3,7 +3,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/caioribi7/masterbase/main/install.sh | sh
 # Depois é só digitar: masterbase
 #
-# Funciona em Ubuntu/Debian (apt) e macOS (Homebrew). Testado em Ubuntu 24.04.
+# Funciona em Ubuntu/Debian (apt), Fedora/RHEL (dnf), Arch (pacman) e macOS (Homebrew). Testado em Ubuntu 24.04.
 # MB_BINARIO=/caminho/masterbase usa um binário local em vez de baixar (para testar).
 set -eu
 
@@ -57,8 +57,31 @@ elif command -v apt-get >/dev/null; then
     $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq postgresql curl >/dev/null
   fi
   $SUDO systemctl enable --now postgresql >/dev/null 2>&1 || $SUDO service postgresql start >/dev/null
+elif command -v dnf >/dev/null; then
+  # Fedora, RHEL, Rocky, Alma
+  if ! command -v pg_dump >/dev/null || ! [ -f /var/lib/pgsql/data/PG_VERSION ]; then
+    say "Instalando Postgres"
+    $SUDO dnf install -y -q postgresql-server postgresql curl >/dev/null
+    [ -f /var/lib/pgsql/data/PG_VERSION ] || $SUDO postgresql-setup --initdb >/dev/null
+    # O padrão do Fedora é "ident" para 127.0.0.1, que não aceita senha. O Masterbase entra com senha.
+    $SUDO sed -i -E 's/^(host\s+all\s+all\s+(127\.0\.0\.1\/32|::1\/128)\s+)ident/\1scram-sha-256/' /var/lib/pgsql/data/pg_hba.conf
+  fi
+  $SUDO systemctl enable --now postgresql >/dev/null 2>&1
+  $SUDO systemctl reload postgresql >/dev/null 2>&1 || true
+elif command -v pacman >/dev/null; then
+  # Arch, Manjaro
+  if ! command -v pg_dump >/dev/null || ! [ -f /var/lib/postgres/data/PG_VERSION ]; then
+    say "Instalando Postgres"
+    $SUDO pacman -S --needed --noconfirm postgresql curl >/dev/null
+    # initdb do Arch fica por conta de quem instala. Senha na rede local, nada de "trust".
+    if ! [ -f /var/lib/postgres/data/PG_VERSION ]; then
+      if [ -n "$SUDO" ]; then AS_PG="sudo -u postgres"; else AS_PG="runuser -u postgres --"; fi
+      (cd /tmp && $AS_PG initdb -D /var/lib/postgres/data --auth-local=peer --auth-host=scram-sha-256 >/dev/null)
+    fi
+  fi
+  $SUDO systemctl enable --now postgresql >/dev/null 2>&1
 else
-  die "instalação automática só em Ubuntu/Debian e macOS. Instale Postgres 16, baixe o programa em https://github.com/$REPO/releases e rode: masterbase configurar"
+  die "instalação automática só em Ubuntu/Debian, Fedora, Arch e macOS. Instale Postgres 16, baixe o programa em https://github.com/$REPO/releases e rode: masterbase configurar"
 fi
 
 for _ in 1 2 3 4 5 6 7 8 9 10; do pg_admin "SELECT 1" >/dev/null 2>&1 && break; sleep 1; done

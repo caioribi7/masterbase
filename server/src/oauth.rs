@@ -98,6 +98,11 @@ pub async fn callback(State(db): State<PgPool>, Path(name): Path<String>, Query(
         .fetch_optional(&db)
         .await;
     let Ok(Some(id)) = id else { return (jar, back("sem-conta")).into_response() };
+    match crate::mfa::ticket(&db, id, p.name).await {
+        Ok(Some(t)) => return (jar, Redirect::to(&format!("/#/entrar?fator={t}"))).into_response(),
+        Ok(None) => {}
+        Err(_) => return (jar, back("falhou")).into_response(),
+    }
     if log(&db, id, "login", json!({ "via": p.name })).await.is_err() {
         return (jar, back("falhou")).into_response();
     }

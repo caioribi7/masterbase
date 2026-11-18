@@ -6,16 +6,21 @@ mod catalog;
 mod config;
 mod data;
 mod error;
+mod limits;
+mod mfa;
 mod mail;
 mod oauth;
+mod passkey;
+mod projects;
 mod query;
+mod rules;
 mod schema;
 mod sql;
 
 use axum::http::{header, HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::extract::DefaultBodyLimit;
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -109,6 +114,17 @@ async fn serve() {
         .route("/reset/check", post(auth::reset_check))
         .route("/reset", post(auth::reset_password))
         .route("/forgot", post(auth::forgot))
+        .route("/login/2fa", post(mfa::login))
+        .route("/magic", post(auth::magic))
+        .route("/magic/use", post(auth::magic_use))
+        .route("/passkeys", get(passkey::list).post(passkey::register))
+        .route("/passkeys/options", post(passkey::register_options))
+        .route("/passkeys/{id}", delete(passkey::remove))
+        .route("/passkeys/login/options", post(passkey::login_options))
+        .route("/passkeys/login", post(passkey::login))
+        .route("/2fa/setup", post(mfa::setup))
+        .route("/2fa/enable", post(mfa::enable))
+        .route("/2fa/disable", post(mfa::disable))
         .route("/oauth/{provider}", get(oauth::start))
         .route("/oauth/{provider}/callback", get(oauth::callback))
         .route("/sql", post(sql::run))
@@ -135,6 +151,9 @@ async fn serve() {
         .route("/schema", get(schema::get_schema).post(schema::create_table))
         .route("/schema/{table}", patch(schema::rename_table).delete(schema::drop_table))
         .route("/schema/{table}/columns", post(schema::add_column))
+        .route("/schema/{table}/owner", put(rules::set))
+        .route("/projects", get(projects::list).post(projects::create))
+        .route("/projects/{id}", delete(projects::remove))
         .route("/schema/{table}/columns/{column}", patch(schema::change_column).delete(schema::drop_column))
         // Respostas da API têm dados da conta: nada de cache no navegador nem em proxy.
         .layer(header_layer(header::CACHE_CONTROL, "no-store"));

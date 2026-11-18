@@ -5,6 +5,10 @@
 //! a saída do pg_dump passa direto pela criptografia e nunca existe cópia aberta no disco.
 //! A mesma chave abre o arquivo em outra máquina (`masterbase recuperar` ou `age -d`).
 //!
+//! Chave fora do servidor (`masterbase chave-backup tirar`): o arquivo de configuração fica só com a parte pública
+//! (MB_BACKUP_RECIPIENT). O servidor continua criptografando, mas não consegue mais abrir os backups: quem invadir
+//! a máquina leva os arquivos e não lê. Para restaurar, a pessoa cola a chave na tela ou usa `masterbase recuperar`.
+//!
 //! Backup automático: um por dia no horário escolhido. Guarda os últimos N (padrão 7) e um por semana de mais M (padrão 4).
 //!
 //! Cópia fora do servidor (só no arquivo de configuração, nunca pela tela):
@@ -44,9 +48,18 @@ pub fn parse_key(s: &str) -> Option<age::x25519::Identity> {
     s.trim().parse().ok()
 }
 
-/// A chave dos backups, se houver. main.rs recusa subir com MB_BACKUP_KEY inválida, então aqui é Some ou ausente.
+/// A chave dos backups, se estiver no servidor. main.rs recusa subir com MB_BACKUP_KEY inválida, então aqui é Some ou ausente.
 fn key() -> Option<age::x25519::Identity> {
     std::env::var("MB_BACKUP_KEY").ok().and_then(|k| parse_key(&k))
+}
+
+pub fn parse_recipient(s: &str) -> Option<age::x25519::Recipient> {
+    s.trim().parse().ok()
+}
+
+/// Para quem o backup é criptografado: a parte pública da chave, esteja a chave aqui ou não.
+fn recipient() -> Option<age::x25519::Recipient> {
+    key().map(|k| k.to_public()).or_else(|| std::env::var("MB_BACKUP_RECIPIENT").ok().and_then(|r| parse_recipient(&r)))
 }
 
 // ---------- nomes ----------
@@ -260,7 +273,7 @@ fn finish(child: std::process::Child, err: std::thread::JoinHandle<String>, io: 
 }
 
 /// pg_dump do schema public para `file`. Com chave, criptografa enquanto escreve.
-fn write_dump(file: &FsPath, url: &str, key: Option<&age::x25519::Identity>) -> Result<(), Fail> {
+fn write_dump(file: &FsPath, url: &str, to: Option<&age::x25519::Recipient>) -> Result<(), Fail> {
     let (mut cmd, _) = pg("pg_dump", url)?;
     let mut child = cmd
         .args(["-Fc", "-n", "public"])
@@ -277,10 +290,9 @@ fn write_dump(file: &FsPath, url: &str, key: Option<&age::x25519::Identity>) -> 
             use std::os::unix::fs::PermissionsExt;
             out.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         }
-        match key {
-            Some(k) => {
-                let r = k.to_public();
-                let enc = age::Encryptor::with_recipients(std::iter::once(&r as &dyn age::Recipient)).map_err(std::io::Error::other)?;
+        match to {
+            Some(r) => {
+                let enc = age::Encryptor::with_recipients(std::iter::once(r as &dyn age::Recipient)).map_err(std::io::Error::other)?;
                 let mut w = enc.wrap_output(&mut out)?;
                 std::io::copy(&mut stdout, &mut w)?;
                 w.finish()?;
@@ -325,7 +337,7 @@ pub fn is_encrypted(file: &FsPath) -> bool {
 async fn dump(kind: Kind) -> ApiResult<String> {
     let dir = dir();
     tokio::fs::create_dir_all(&dir).await.map_err(|_| ApiError(StatusCode::INTERNAL_SERVER_ERROR, "Não consegui criar a pasta de backups."))?;
-    let key = key();
+    let key = recipient();
     let ext = if key.is_some() { ".dump.age" } else { ".dump" };
     // O nome tem precisão de segundo. Se já existe um desse segundo, espera o próximo: backup nunca sobrescreve backup.
     let (name, file, part) = loop {
@@ -526,6 +538,8 @@ pub async fn delete(user: User, State(db): State<PgPool>, Path(name): Path<Strin
 #[derive(Deserialize)]
 pub struct Confirm {
     confirm: String,
+    /// Chave colada na tela, quando ela não fica no servidor.
+    key: Option<String>,
 }
 
 /// Volta as tabelas do backup ao estado em que estavam. Uma transação só: se falhar no meio, nada muda.
@@ -539,9 +553,12 @@ pub async fn restore(user: User, State(db): State<PgPool>, Path(name): Path<Stri
     if !file.exists() {
         return Err(ApiError(StatusCode::NOT_FOUND, "Backup não encontrado."));
     }
-    let key = key();
+    let key = match b.key.as_deref().filter(|k| !k.trim().is_empty()) {
+        Some(k) => Some(parse_key(k).ok_or(bad("Essa não é uma chave válida. Ela começa com AGE-SECRET-KEY-1."))?),
+        None => key(),
+    };
     if is_encrypted(&file) && key.is_none() {
-        return Err(Fail::Key.api());
+        return Err(bad("A chave não fica neste servidor. Cole a chave de recuperação para restaurar."));
     }
     let safety = dump(Kind::Before).await?;
     let url = std::env::var("DATABASE_URL").unwrap_or_default();
@@ -568,7 +585,8 @@ pub async fn get_settings(user: User, State(db): State<PgPool>) -> ApiResult<Jso
         "enabled": enabled,
         "minute": minute,
         "next": enabled.then_some(next * 1000),
-        "encrypted": key().is_some(),
+        "encrypted": recipient().is_some(),
+        "key_on_server": key().is_some(),
         "key_saved": key_saved,
         "keep_daily": keep_daily,
         "keep_weekly": keep_weekly,
@@ -636,17 +654,17 @@ pub async fn show_key(user: User, State(db): State<PgPool>, Json(b): Json<ShowKe
     user.admin()?;
     // Mesmo limite do login: 5 senhas erradas em 15 minutos travam.
     let lock = format!("key:{}", user.id);
-    if crate::auth::attempts().blocked(&lock, 5, std::time::Instant::now()) {
+    if crate::limits::blocked(&db, &lock, 5).await? {
         return Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "Muitas tentativas. Espere 15 minutos."));
     }
     let hash: String = sqlx::query_scalar("SELECT password_hash FROM masterbase.users WHERE id = $1").bind(user.id).fetch_one(&db).await?;
     let ok = PasswordHash::new(&hash).map(|h| Argon2::default().verify_password(b.password.as_bytes(), &h).is_ok()).unwrap_or(false);
     if !ok {
-        crate::auth::attempts().fail(&lock, std::time::Instant::now());
+        crate::limits::fail(&db, &lock).await?;
         return Err(bad("Senha incorreta."));
     }
-    crate::auth::attempts().clear(&lock);
-    let key = std::env::var("MB_BACKUP_KEY").map_err(|_| bad("Este servidor ainda não tem chave de backup."))?;
+    crate::limits::clear(&db, &lock).await?;
+    let key = std::env::var("MB_BACKUP_KEY").map_err(|_| bad("A chave não fica neste servidor. Ela está com quem a tirou daqui."))?;
     log(&db, user.id, "backup_key", json!({})).await?;
     Ok(Json(json!({ "key": key.trim() })))
 }

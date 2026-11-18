@@ -3,6 +3,7 @@ use crate::error::{bad, ApiError, ApiResult};
 use axum::http::StatusCode;
 use serde_json::{json, Value};
 use sqlx::PgPool;
+use std::collections::HashMap;
 
 /// Aspas de identificador do Postgres. Nomes de coisas existentes só chegam aqui depois de conferidos no catálogo.
 pub fn ident(name: &str) -> String {
@@ -145,17 +146,28 @@ pub async fn columns(db: &PgPool, table: Option<&str>) -> ApiResult<Vec<Col>> {
 }
 
 /// Nomes e contagem de linhas das tabelas de public.
-pub async fn table_counts(db: &PgPool) -> ApiResult<Vec<(String, i64)>> {
-    let names: Vec<String> =
-        sqlx::query_scalar("SELECT tablename::text FROM pg_tables WHERE schemaname = 'public' ORDER BY 1")
-            .fetch_all(db)
-            .await?;
+/// `rules`: e-mail e regras por linha de quem pede (rules::all_for). Tabela com regra conta só as linhas da pessoa.
+pub async fn table_counts(db: &PgPool, rules: Option<&(String, HashMap<String, String>)>) -> ApiResult<Vec<(String, i64)>> {
+    // Estimativa do Postgres para tabela grande (count(*) passaria de segundos); conta de verdade abaixo de 1 milhão.
+    let names: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT c.relname::text, c.reltuples::bigint FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') ORDER BY 1",
+    )
+    .fetch_all(db)
+    .await?;
     let mut out = Vec::with_capacity(names.len());
-    for name in names {
-        // shortcut: count(*) por tabela fica lento acima de ~1M linhas; trocar por pg_class.reltuples aí.
-        let rows: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM public.{}", ident(&name)))
-            .fetch_one(db)
-            .await?;
+    for (name, estimate) in names {
+        let rule = rules.and_then(|(email, r)| r.get(&name).map(|c| (email, c)));
+        let rows = if let Some((email, col)) = rule {
+            sqlx::query_scalar(&format!("SELECT count(*) FROM (SELECT 1 FROM public.{} t WHERE lower(t.{}::text) = lower($1) LIMIT 1000001) s", ident(&name), ident(col)))
+                .bind(email)
+                .fetch_one(db)
+                .await?
+        } else if estimate > 1_000_000 {
+            estimate
+        } else {
+            sqlx::query_scalar(&format!("SELECT count(*) FROM public.{}", ident(&name))).fetch_one(db).await?
+        };
         out.push((name, rows));
     }
     Ok(out)

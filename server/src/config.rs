@@ -13,6 +13,7 @@ pub fn help() {
          masterbase configurar   muda banco, porta e quem pode acessar\n\
          masterbase servico      deixa rodando sozinho ao ligar o servidor (Linux, com sudo)\n\
          masterbase chave-backup mostra a chave que abre os backups (guarde fora do servidor)\n\
+         masterbase chave-backup tirar  apaga a chave deste servidor; ele só criptografa, não abre\n\
          masterbase recuperar F  restaura o backup F no banco configurado, mesmo em outra máquina\n\
          masterbase senha EMAIL  cria um link para EMAIL definir uma senha nova (esqueceu a senha)\n\
          masterbase versao       mostra a versão\n\n\
@@ -208,6 +209,15 @@ fn write(cfg: &BTreeMap<String, String>) -> std::io::Result<()> {
 /// Garante a chave dos backups. Na primeira vez, gera e grava no arquivo de configuração.
 /// Se não der para gravar, os backups saem sem criptografia: uma chave que some ao reiniciar perderia todos eles.
 pub fn ensure_backup_key() {
+    if let Ok(r) = std::env::var("MB_BACKUP_RECIPIENT") {
+        if std::env::var_os("MB_BACKUP_KEY").is_none() {
+            if crate::backup::parse_recipient(&r).is_none() {
+                eprintln!("MB_BACKUP_RECIPIENT inválida: precisa ser age1... Corrija em {}", path().display());
+                std::process::exit(1);
+            }
+            return;
+        }
+    }
     if let Ok(k) = std::env::var("MB_BACKUP_KEY") {
         if crate::backup::parse_key(&k).is_none() {
             eprintln!("MB_BACKUP_KEY inválida: precisa ser uma chave AGE-SECRET-KEY-1... Corrija em {}", path().display());
@@ -229,6 +239,9 @@ pub fn ensure_backup_key() {
 
 pub fn show_backup_key() {
     load();
+    if std::env::args().nth(2).as_deref() == Some("tirar") {
+        return take_backup_key();
+    }
     match std::env::var("MB_BACKUP_KEY") {
         Ok(k) => {
             println!("{}", k.trim());
@@ -239,6 +252,33 @@ pub fn show_backup_key() {
             std::process::exit(1);
         }
     }
+}
+
+/// `masterbase chave-backup tirar`: deixa no servidor só a parte pública da chave.
+/// Depois disso os backups continuam saindo criptografados, mas só abrem com a chave que a pessoa guardou.
+fn take_backup_key() {
+    let Some(key) = std::env::var("MB_BACKUP_KEY").ok().and_then(|k| crate::backup::parse_key(&k)) else {
+        eprintln!("A chave já não está neste servidor.");
+        std::process::exit(1);
+    };
+    if !std::io::stdin().is_terminal() {
+        eprintln!("rode `masterbase chave-backup tirar` num terminal");
+        std::process::exit(1);
+    }
+    use age::secrecy::ExposeSecret;
+    println!("Esta é a chave que abre os backups. Depois deste passo ela some do servidor:\n");
+    println!("    {}\n", key.to_string().expose_secret());
+    println!("Guarde num gerenciador de senhas. Sem ela, nenhum backup abre, nem neste servidor.");
+    if ask("Digite guardei para tirar a chave daqui", "") != "guardei" {
+        println!("Nada mudou.");
+        return;
+    }
+    let mut cfg = read();
+    cfg.remove("MB_BACKUP_KEY");
+    cfg.insert("MB_BACKUP_RECIPIENT".into(), key.to_public().to_string());
+    save(&cfg);
+    println!("Pronto. Reinicie o Masterbase (sudo systemctl restart masterbase) para valer.");
+    println!("Para restaurar pela tela, cole a chave quando ela pedir. Em outra máquina: masterbase recuperar ARQUIVO.");
 }
 
 /// `masterbase recuperar ARQUIVO`: restaura no banco da configuração. Serve para o servidor que morreu:

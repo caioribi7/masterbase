@@ -128,6 +128,14 @@ masterbase chave-backup
 
 Ela é criada na primeira vez que o Masterbase sobe e fica em `MB_BACKUP_KEY`, no arquivo de configuração. Sem ela, os backups não abrem fora deste servidor. Para recuperar numa máquina nova: instale, copie o arquivo e rode `masterbase recuperar arquivo.dump.age`. O formato é o [age](https://age-encryption.org), então `age -d -i chave.txt arquivo.dump.age > arquivo.dump` também abre.
 
+Quer que nem quem invadir o servidor consiga abrir os backups? Depois de guardar a chave, rode:
+
+```bash
+masterbase chave-backup tirar
+```
+
+O servidor fica só com a parte pública (`MB_BACKUP_RECIPIENT`): continua criptografando, mas não abre mais nada. Para restaurar pela tela, você cola a chave na hora.
+
 Esses backups têm só as suas tabelas. Para guardar também contas e histórico, faça um `pg_dump` do banco inteiro por fora.
 
 ## Atualizar

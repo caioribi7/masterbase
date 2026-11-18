@@ -11,6 +11,7 @@ check() {
   local want=$1 what=$2 method=$3 path=$4 body=${5:-}
   local args=(-s -o /tmp/mb-body -w '%{http_code}' -b "$JAR" -c "$JAR" -X "$method")
   [ -n "$body" ] && args+=(-H 'content-type: application/json' -d "$body")
+  [ -n "${HDR:-}" ] && args+=(-H "$HDR")
   local got; got=$(curl "${args[@]}" "$BASE$path")
   if [ "$got" = "$want" ]; then echo "ok   $what"; else echo "FALHA $what: esperado $want, veio $got $(cat /tmp/mb-body)"; fails=$((fails+1)); fi
 }
@@ -230,6 +231,102 @@ check 200 "sessão atual continua"             GET  /me
 for _ in 1 2 3 4 5; do curl -s -o /dev/null -b "$JAR" -H 'content-type: application/json' -d '{"password":"errada"}' "$BASE/backups/key"; done
 check 429 "chave trava após 5 senhas erradas" POST /backups/key "{\"password\":\"$PW\"}"
 
+# ---- verificação em duas etapas ----
+totp() { python3 -c "import hmac,hashlib,struct,time,base64,sys; k=base64.b32decode(sys.argv[1]+'='*(-len(sys.argv[1])%8)); c=int(time.time())//30; h=hmac.new(k,struct.pack('>Q',c),hashlib.sha1).digest(); o=h[19]&15; print('%06d'%((struct.unpack('>I',h[o:o+4])[0]&0x7fffffff)%1000000))" "$1"; }
+check 200 "gerar QR do segundo fator"         POST /2fa/setup; has '"qr":"<?xml'; has 'otpauth://totp/'
+SECRET=$(sed -E 's/.*"secret":"([A-Z2-7]+)".*/\1/' /tmp/mb-body)
+check 400 "código errado não liga"            POST /2fa/enable '{"code":"000000"}'
+CODE=$(totp "$SECRET")
+check 200 "ligar o segundo fator"             POST /2fa/enable "{\"code\":\"$CODE\"}"; has '"codes":\['
+REC1=$(grep -o '"[0-9a-f]\{5\}-[0-9a-f]\{5\}"' /tmp/mb-body | sed -n 1p | tr -d '"')
+REC2=$(grep -o '"[0-9a-f]\{5\}-[0-9a-f]\{5\}"' /tmp/mb-body | sed -n 2p | tr -d '"')
+check 200 "me mostra o segundo fator"         GET  /me; has '"totp":true'
+check 200 "senha certa pede o código"         POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"; has '"second_factor":true'
+TICKET=$(sed -E 's/.*"ticket":"([0-9a-f]+)".*/\1/' /tmp/mb-body)
+check 400 "o mesmo código não vale duas vezes" POST /login/2fa "{\"ticket\":\"$TICKET\",\"code\":\"$CODE\"}"
+check 200 "código de recuperação entra"       POST /login/2fa "{\"ticket\":\"$TICKET\",\"code\":\"$REC1\"}"
+check 401 "ticket não vale duas vezes"        POST /login/2fa "{\"ticket\":\"$TICKET\",\"code\":\"$REC2\"}"
+check 200 "senha de novo"                     POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"
+TICKET=$(sed -E 's/.*"ticket":"([0-9a-f]+)".*/\1/' /tmp/mb-body)
+check 400 "recuperação já gasta não entra"    POST /login/2fa "{\"ticket\":\"$TICKET\",\"code\":\"$REC1\"}"
+check 200 "outra recuperação entra"           POST /login/2fa "{\"ticket\":\"$TICKET\",\"code\":\"$REC2\"}"
+check 200 "pessoas mostram 2 etapas"          GET  /users; has '"totp":true'
+check 400 "desligar exige código"             POST /2fa/disable '{"code":"123456"}'
+check 200 "admin desliga pela tela Acesso"     PATCH /users/1 '{"reset_2fa":true}'
+check 200 "sem segundo fator"                 GET  /me; has '"totp":false'
+check 200 "entra direto de novo"              POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"; has '"ok":true'
+check 400 "passkey precisa de nome no MB_URL" POST /passkeys/login/options
+
+# ---- regra por linha: vendedor só vê os próprios pedidos ----
+check 200 "tabela de vendas"                  POST /schema '{"name":"vendas","columns":[{"name":"item","kind":"texto"},{"name":"vendedor","kind":"texto"}]}'
+check 200 "venda da Vera"                     POST /tables/vendas/rows '{"values":{"item":"mesa","vendedor":"VERA@smoke.test"}}'
+check 200 "venda do Rui"                      POST /tables/vendas/rows '{"values":{"item":"cadeira","vendedor":"rui@smoke.test"}}'
+check 400 "regra em coluna que não existe"    PUT  /schema/vendas/owner '{"column":"x"}'
+check 200 "ligar a regra"                     PUT  /schema/vendas/owner '{"column":"vendedor"}'
+check 200 "estrutura mostra a regra"          GET  /schema; has '"owner":"vendedor"'
+check 400 "coluna do dono não se apaga"       DELETE /schema/vendas/columns/vendedor
+check 200 "admin vê todas"                    GET  /tables/vendas; has '"total":2'
+check 200 "criar vendedora"                   POST /users "{\"name\":\"Vera\",\"email\":\"vera@smoke.test\",\"password\":\"$PW\",\"role\":\"editor\"}"
+check 200 "sair (admin, regra)"               POST /logout
+check 200 "entrar como vendedora"             POST /login "{\"email\":\"vera@smoke.test\",\"password\":\"$PW\"}"
+check 200 "vê só a própria venda"             GET  /tables/vendas; has '"total":1'; has '"owner":"vendedor"'; has 'mesa'
+grep -q cadeira /tmp/mb-body && { echo "FALHA vendedora viu venda alheia"; fails=$((fails+1)); }
+check 200 "contagem só das dela"              GET  /tables; has '"name":"vendas","rows":1'
+check 200 "consulta também filtra"            POST /query '{"table":"vendas"}'; has 'mesa'
+grep -q cadeira /tmp/mb-body && { echo "FALHA consulta mostrou venda alheia"; fails=$((fails+1)); }
+check 200 "venda nova é dela"                 POST /tables/vendas/rows '{"values":{"item":"sofá","vendedor":"rui@smoke.test"}}'; has '"vendedor":"vera@smoke.test"'
+check 404 "não edita venda alheia"            PATCH /tables/vendas/rows '{"pk":2,"column":"item","value":"x"}'
+check 400 "não troca o dono"                  PATCH /tables/vendas/rows '{"pk":1,"column":"vendedor","value":"rui@smoke.test"}'
+check 200 "não apaga venda alheia"            DELETE /tables/vendas/rows '{"pks":[2]}'; has '"deleted":0'
+check 200 "importar vira dela"                POST /tables/vendas/import '{"columns":["item"],"rows":[["banco"]]}'
+check 200 "agora são 3 dela"                  GET  /tables/vendas; has '"total":3'
+check 200 "sair (vendedora)"                  POST /logout
+check 200 "admin volta"                       POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"
+check 200 "renomear a coluna leva a regra"    PATCH /schema/vendas/columns/vendedor '{"name":"dono"}'
+check 200 "regra segue o nome novo"           GET  /schema; has '"owner":"dono"'
+check 200 "desligar a regra"                  PUT  /schema/vendas/owner '{"column":null}'
+check 200 "admin vê as 4"                     GET  /tables/vendas; has '"total":4'
+
+# ---- vários projetos: outro banco no mesmo painel (PROJ_URL = banco de teste à parte) ----
+if [ -n "${PROJ_URL:-}" ]; then
+  check 400 "endereço que não é postgres"       POST /projects '{"name":"x","url":"mysql://a@b/c"}'
+  check 400 "banco que não responde"            POST /projects '{"name":"x","url":"postgres://a:b@127.0.0.1:1/x"}'
+  check 200 "conectar outro banco"              POST /projects "{\"name\":\"Loja\",\"url\":\"$PROJ_URL\"}"
+  PID=$(sed -E 's/.*"id":([0-9]+).*/\1/' /tmp/mb-body)
+  check 200 "lista não mostra a senha"          GET  /projects; has '"name":"Loja"'
+  grep -q "$PROJ_URL" /tmp/mb-body && { echo "FALHA lista de projetos mostrou o endereço"; fails=$((fails+1)); }
+  HDR="X-MB-Project: $PID"
+  check 200 "me mostra o projeto aberto"        GET  /me; has '"project":"Loja"'
+  check 200 "tabelas do outro banco"            GET  /tables; has '"name":"itens","rows":2'
+  grep -q clientes /tmp/mb-body && { echo "FALHA projeto mostrou tabela do principal"; fails=$((fails+1)); }
+  check 200 "linha nova no outro banco"         POST /tables/itens/rows '{"values":{"nome":"arruela"}}'
+  check 200 "coluna nova no outro banco"        POST /schema/itens/columns '{"name":"dono","kind":"texto"}'
+  check 200 "regra por linha no projeto"        PUT  /schema/itens/owner '{"column":"dono"}'
+  check 200 "consulta salva no projeto"         POST /queries '{"name":"todos os itens","spec":{"table":"itens"}}'
+  check 200 "SQL no projeto"                    POST /sql '{"sql":"SELECT count(*) AS n FROM itens","read_only":true}'; has '"3"'
+  check 200 "início do projeto"                 GET  /overview; has '"name":"itens"'
+  HDR="X-MB-Project: 99999"
+  check 404 "projeto que não existe"            GET  /tables
+  HDR=""
+  check 200 "principal continua igual"          GET  /tables; has 'clientes'
+  grep -q itens /tmp/mb-body && { echo "FALHA principal mostrou tabela do projeto"; fails=$((fails+1)); }
+  check 200 "consulta do projeto fica lá"       GET  /queries
+  grep -q 'todos os itens' /tmp/mb-body && { echo "FALHA consulta do projeto apareceu no principal"; fails=$((fails+1)); }
+  check 200 "regra do projeto fica lá"          GET  /schema
+  grep -q '"owner":"dono"' /tmp/mb-body && { echo "FALHA regra do projeto apareceu no principal"; fails=$((fails+1)); }
+  check 200 "atividade marca o projeto"         GET  /activity; has "\"project\":$PID"
+  check 200 "sair (admin, projetos)"            POST /logout
+  check 200 "vendedora entra"                   POST /login "{\"email\":\"vera@smoke.test\",\"password\":\"$PW\"}"
+  check 403 "editor não conecta banco"          POST /projects '{"name":"x","url":"postgres://a:b@127.0.0.1:1/x"}'
+  check 403 "editor não tira projeto"           DELETE /projects/$PID
+  check 200 "sair (vendedora)"                  POST /logout
+  check 200 "admin volta (projetos)"            POST /login "{\"email\":\"dona@smoke.test\",\"password\":\"$PW\"}"
+  check 200 "tirar o projeto"                   DELETE /projects/$PID
+  HDR="X-MB-Project: $PID"
+  check 404 "projeto tirado não abre"           GET  /tables
+  HDR=""
+fi
+
 # ---- e-mail e login com GitHub (só quando o servidor sobe com o SMTP falso: SINK=arquivo) ----
 if [ -n "${SINK:-}" ]; then
   check 200 "e-mail e GitHub ligados"         GET  /setup; has '"mail":true'; has '"oauth":\["github"\]'
@@ -244,6 +341,16 @@ if [ -n "${SINK:-}" ]; then
   check 200 "esqueci a senha, 2ª vez"         POST /forgot '{"email":"ninguem@smoke.test"}'
   check 200 "esqueci a senha, 3ª vez"         POST /forgot '{"email":"ninguem@smoke.test"}'
   check 429 "esqueci a senha trava na 4ª"     POST /forgot '{"email":"ninguem@smoke.test"}'
+
+  : > "$SINK"
+  check 200 "entrar com link por e-mail"      POST /magic '{"email":"gil@smoke.test"}'; has '"ok":true'
+  sleep 1
+  MAGIC=$(grep -o 'link/[0-9a-f]\{64\}' "$SINK" | head -1 | cut -d/ -f2)
+  [ -n "$MAGIC" ] && grep -q 'Entrar no' "$SINK" && echo "ok   link de entrar chegou" || { echo "FALHA link de entrar: $(cat "$SINK")"; fails=$((fails+1)); }
+  code=$(curl -s -o /tmp/mb-body -w '%{http_code}' -c /tmp/mb-magic-jar -H 'content-type: application/json' -d "{\"token\":\"$MAGIC\"}" "$BASE/magic/use")
+  [ "$code" = 200 ] && grep -q 'mb_session' /tmp/mb-magic-jar && echo "ok   link de entrar abre sessão" || { echo "FALHA link de entrar: $code $(cat /tmp/mb-body)"; fails=$((fails+1)); }
+  code=$(curl -s -o /dev/null -w '%{http_code}' -H 'content-type: application/json' -d "{\"token\":\"$MAGIC\"}" "$BASE/magic/use")
+  [ "$code" = 404 ] && echo "ok   link de entrar não vale duas vezes" || { echo "FALHA link reusado: $code"; fails=$((fails+1)); }
 
   loc() { curl -s -o /dev/null -D - -b "$JAR" -c "$JAR" "$BASE$1" | tr -d '\r' | sed -n 's/^location: //Ip'; }
   L=$(loc /oauth/github)

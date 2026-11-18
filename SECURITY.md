@@ -32,7 +32,8 @@ O projeto está na versão 0.x. Só o código mais recente da branch `main` rece
 Já sabemos destes e eles estão em [MVP.md](MVP.md#falta). Não precisam de aviso privado:
 
 - o servidor conecta como dono do banco (o editor SQL usa um papel à parte, só com acesso a linhas de `public`);
-- a conexão com o Postgres não usa TLS;
-- o bloqueio de tentativas de login e de "esqueci a senha" (por e-mail e por IP) e o limite de pedidos por chave de API ficam em memória e zeram ao reiniciar;
-- não há limite de requisições por chave de API;
+- o limite de pedidos por chave de API fica em memória e zera ao reiniciar (o de tentativas de login fica no banco);
+- com a chave dos backups no servidor (o padrão), quem invade o servidor também abre os backups; `masterbase chave-backup tirar` tira a chave de lá;
+- o endereço de um projeto conectado (com a senha daquele banco) fica guardado no banco principal;
+- quem tem acesso ao painel vê todos os projetos conectados;
 - enquanto nenhuma conta existe, quem acessar primeiro cria a conta de administrador.

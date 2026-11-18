@@ -1,5 +1,5 @@
 <script>
-  import { api } from './api.js';
+  import { api, currentProject } from './api.js';
   import { bytes } from './lib.js';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
@@ -19,6 +19,7 @@
   let key = $state('');
   let keySaved = $state(false);
   let keyMsg = $state('');
+  let pasteKey = $state(''); // chave colada para restaurar, quando ela não fica no servidor
 
   const fail = (e) => (e.status === 401 ? onAuthLost() : (error = e.message));
   const load = () => api('/backups').then((r) => (items = r)).catch(fail);
@@ -72,7 +73,8 @@
     busy = true;
     formError = '';
     try {
-      await api(`/backups/${restoring.name}/restore`, { method: 'POST', body: { confirm } });
+      await api(`/backups/${restoring.name}/restore`, { method: 'POST', body: { confirm, key: pasteKey || undefined } });
+      pasteKey = '';
       done = `Banco restaurado para ${when(restoring.at)}. O estado anterior ficou guardado num backup "Antes de restaurar".`;
       restoring = null;
       await load();
@@ -110,6 +112,7 @@
     <div>
       <h1 class="brand">Backups</h1>
       <p>Cópias das suas tabelas, guardadas no servidor. Baixe uma de vez em quando para ter fora dele também.</p>
+      {#if currentProject()}<p>Aqui ficam só os backups do banco principal. Os outros projetos têm backup por conta do servidor de cada um.</p>{/if}
     </div>
     <div class="actions">
       <button class="btn-primary" disabled={busy} onclick={create}><Icon name="plus" size={14} stroke="#12133A" weight={2.6} /> Fazer backup agora</button>
@@ -119,7 +122,7 @@
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if done}<p class="ok" role="status">{done}</p>{/if}
 
-  {#if cfg?.encrypted && !cfg.key_saved}
+  {#if cfg?.encrypted && cfg.key_on_server && !cfg.key_saved}
     <div class="panel-edge warn-edge"><div class="panel warn">
       <Icon name="key" size={18} stroke="var(--lime)" />
       <p><strong>Guarde a chave de recuperação.</strong> Os backups saem criptografados. Se este servidor se perder, só essa chave abre os arquivos em outra máquina.</p>
@@ -166,7 +169,7 @@
       {#if cfg.failed}<p class="error" role="alert">O último backup automático falhou: {cfg.failed} Tentamos de novo em uma hora.</p>{/if}
       <div class="facts">
         <span class="badge" class:lime={cfg.encrypted}><Icon name="key" size={12} /> {cfg.encrypted ? 'Criptografados' : 'Sem criptografia'}</span>
-        {#if cfg.encrypted}<button class="link" onclick={openKey}>Chave de recuperação</button>{/if}
+        {#if cfg.encrypted}{#if cfg.key_on_server}<button class="link" onclick={openKey}>Chave de recuperação</button>{:else}<span class="off-key" title="O servidor só criptografa. Para restaurar, cole a chave.">Chave fora do servidor</span>{/if}{/if}
       </div>
     </div></div>
 
@@ -216,6 +219,11 @@
     <form class="form" onsubmit={restore}>
       <p class="msg">As tabelas voltam a ser como eram em <strong>{when(restoring.at)}</strong>. O que mudou depois disso se perde nessas tabelas.</p>
       <p class="hint">Antes de restaurar, o Masterbase guarda um backup do estado de agora. Tabelas criadas depois desse backup continuam existindo.</p>
+      {#if restoring.encrypted && cfg && !cfg.key_on_server}
+        <label class="stack"><span class="label">Chave de recuperação</span>
+          <input class="field mono" bind:value={pasteKey} placeholder="AGE-SECRET-KEY-1..." autocomplete="off" spellcheck="false" required /></label>
+        <p class="hint">A chave não fica neste servidor. Ela é usada só para esta restauração e não é guardada.</p>
+      {/if}
       <label class="stack"><span class="label">Digite restaurar para confirmar</span>
         <!-- svelte-ignore a11y_autofocus -->
         <input class="field" bind:value={confirm} autocomplete="off" autofocus /></label>
@@ -284,6 +292,7 @@
   .kind { font-size: 14px; color: var(--soft); }
   .badge.plain { margin-left: 8px; }
   .key { user-select: all; font-size: 13px; }
+  .off-key { font-size: 13px; color: var(--lavender-2); }
   .copy { display: flex; align-items: center; gap: 12px; }
   .hint code { color: var(--soft); font-size: 12px; }
 </style>

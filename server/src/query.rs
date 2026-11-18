@@ -1,14 +1,14 @@
 //! Página Consultas: o construtor visual manda uma descrição (Spec) e o servidor monta o SELECT.
 //! Não existe SQL livre: nomes vêm do catálogo, operadores de uma lista fixa, valores como parâmetro.
 use crate::auth::User;
+use crate::projects::Db;
 use crate::catalog::{columns, ident, Col};
 use crate::error::{bad, ApiError, ApiResult};
-use axum::extract::{Path, State};
+use axum::extract::Path;
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::PgPool;
 
 #[derive(Deserialize, Serialize)]
 pub struct Filter {
@@ -35,7 +35,8 @@ fn find<'a>(cols: &'a [Col], name: &str) -> ApiResult<&'a Col> {
 }
 
 /// Monta o SELECT. Devolve o SQL com $1, $2... e os valores na ordem.
-fn build(cols: &[Col], s: &Spec) -> ApiResult<(String, Vec<String>)> {
+/// `mine`: regra por linha de quem pede (só as linhas com o e-mail da pessoa).
+fn build(cols: &[Col], s: &Spec, mine: Option<&crate::rules::Owner>) -> ApiResult<(String, Vec<String>)> {
     if s.filters.len() > 20 {
         return Err(bad("Máximo de 20 condições."));
     }
@@ -48,6 +49,10 @@ fn build(cols: &[Col], s: &Spec) -> ApiResult<(String, Vec<String>)> {
     let mut sql = format!("SELECT {} FROM public.{} t", list.join(", "), ident(&s.table));
     let mut binds = Vec::new();
     let mut conds = Vec::new();
+    if let Some(o) = mine {
+        binds.push(o.email.clone());
+        conds.push(o.cond(1));
+    }
     for f in &s.filters {
         let col = find(cols, &f.col)?;
         let c = format!("t.{}", ident(&col.name));
@@ -86,9 +91,11 @@ fn readable(sql: &str, binds: &[String]) -> String {
     out
 }
 
-pub async fn run(_user: User, State(db): State<PgPool>, Json(s): Json<Spec>) -> ApiResult<Json<Value>> {
+pub async fn run(user: User, p: Db, Json(s): Json<Spec>) -> ApiResult<Json<Value>> {
+    let db = p.data.clone();
     let cols = columns(&db, Some(&s.table)).await?;
-    let (sql, binds) = build(&cols, &s)?;
+    let mine = crate::rules::owner(&p, &user, &s.table).await?;
+    let (sql, binds) = build(&cols, &s, mine.as_ref())?;
     let wrapped = format!("SELECT row_to_json(q)::jsonb FROM ({sql}) q");
     let mut q = sqlx::query_scalar(&wrapped);
     for b in &binds {
@@ -99,11 +106,12 @@ pub async fn run(_user: User, State(db): State<PgPool>, Json(s): Json<Spec>) -> 
     Ok(Json(json!({ "columns": shown, "rows": rows, "sql": readable(&sql, &binds) })))
 }
 
-pub async fn list_saved(_user: User, State(db): State<PgPool>) -> ApiResult<Json<Value>> {
+pub async fn list_saved(_user: User, p: Db) -> ApiResult<Json<Value>> {
     let rows: Vec<Value> = sqlx::query_scalar(
-        "SELECT jsonb_build_object('id', id, 'name', name, 'spec', spec) FROM masterbase.queries ORDER BY name",
+        "SELECT jsonb_build_object('id', id, 'name', name, 'spec', spec) FROM masterbase.queries WHERE project = $1 ORDER BY name",
     )
-    .fetch_all(&db)
+    .bind(p.project)
+    .fetch_all(&p.meta)
     .await?;
     Ok(Json(Value::Array(rows)))
 }
@@ -114,26 +122,28 @@ pub struct Save {
     spec: Spec,
 }
 
-pub async fn save(user: User, State(db): State<PgPool>, Json(b): Json<Save>) -> ApiResult<Json<Value>> {
+pub async fn save(user: User, p: Db, Json(b): Json<Save>) -> ApiResult<Json<Value>> {
+    let db = p.data.clone();
     user.editor()?;
     let name = b.name.trim();
     if name.is_empty() || name.len() > 80 {
         return Err(bad("Dê um nome para a consulta (até 80 caracteres)."));
     }
     // Só salva o que roda: valida contra o catálogo antes.
-    build(&columns(&db, Some(&b.spec.table)).await?, &b.spec)?;
-    let id: i64 = sqlx::query_scalar("INSERT INTO masterbase.queries (user_id, name, spec) VALUES ($1, $2, $3) RETURNING id")
+    build(&columns(&db, Some(&b.spec.table)).await?, &b.spec, None)?;
+    let id: i64 = sqlx::query_scalar("INSERT INTO masterbase.queries (user_id, name, spec, project) VALUES ($1, $2, $3, $4) RETURNING id")
         .bind(user.id)
         .bind(name)
         .bind(sqlx::types::Json(&b.spec))
-        .fetch_one(&db)
+        .bind(p.project)
+        .fetch_one(&p.meta)
         .await?;
     Ok(Json(json!({ "id": id })))
 }
 
-pub async fn delete_saved(user: User, State(db): State<PgPool>, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
+pub async fn delete_saved(user: User, p: Db, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
     user.editor()?;
-    let n = sqlx::query("DELETE FROM masterbase.queries WHERE id = $1").bind(id).execute(&db).await?.rows_affected();
+    let n = sqlx::query("DELETE FROM masterbase.queries WHERE id = $1 AND project = $2").bind(id).bind(p.project).execute(&p.meta).await?.rows_affected();
     if n == 0 {
         return Err(ApiError(StatusCode::NOT_FOUND, "Consulta não encontrada."));
     }
@@ -160,7 +170,7 @@ mod tests {
             Filter { col: "total".into(), op: "maior que".into(), val: Some("10".into()) },
             Filter { col: "nome".into(), op: "não vazio".into(), val: None },
         ];
-        let (sql, binds) = build(&cols, &spec(f)).ok().unwrap();
+        let (sql, binds) = build(&cols, &spec(f), None).ok().unwrap();
         assert_eq!(
             sql,
             "SELECT t.\"nome\", t.\"total\" FROM public.\"t\" t WHERE position(lower($1) in lower(t.\"nome\"::text)) > 0 \
@@ -173,7 +183,17 @@ mod tests {
     #[test]
     fn rejects_unknown_column_and_operator() {
         let cols = [col("nome", "text"), col("total", "numeric")];
-        assert!(build(&cols, &spec(vec![Filter { col: "x\"; drop".into(), op: "é".into(), val: Some("1".into()) }])).is_err());
-        assert!(build(&cols, &spec(vec![Filter { col: "nome".into(), op: "OR 1=1".into(), val: Some("1".into()) }])).is_err());
+        assert!(build(&cols, &spec(vec![Filter { col: "x\"; drop".into(), op: "é".into(), val: Some("1".into()) }]), None).is_err());
+        assert!(build(&cols, &spec(vec![Filter { col: "nome".into(), op: "OR 1=1".into(), val: Some("1".into()) }]), None).is_err());
+    }
+
+    #[test]
+    fn owner_rule_comes_first() {
+        let cols = [col("nome", "text"), col("vendedor", "text"), col("total", "numeric")];
+        let o = crate::rules::Owner { column: "vendedor".into(), email: "a@b.c".into() };
+        let f = vec![Filter { col: "nome".into(), op: "é".into(), val: Some("x".into()) }];
+        let (sql, binds) = build(&cols, &spec(f), Some(&o)).ok().unwrap();
+        assert!(sql.contains("WHERE lower(t.\"vendedor\"::text) = lower($1) AND lower(t.\"nome\"::text) = lower($2)"));
+        assert_eq!(binds, ["a@b.c", "x"]);
     }
 }

@@ -1,23 +1,26 @@
 //! Tela Estrutura: criar e mudar tabelas e colunas sem SQL.
 //! Nomes novos passam por valid_name + ident; nomes existentes são conferidos no catálogo; tipos vêm de uma lista fixa.
-use crate::activity::log;
 use crate::auth::User;
+use crate::projects::Db;
 use crate::catalog::{columns, ident, kind_sql, valid_name, Col};
 use crate::error::{bad, ApiError, ApiResult};
-use axum::extract::{Path, State};
+use axum::extract::Path;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::PgPool;
 
-pub async fn get_schema(_user: User, State(db): State<PgPool>) -> ApiResult<Json<Value>> {
+pub async fn get_schema(_user: User, p: Db) -> ApiResult<Json<Value>> {
+    let db = p.data.clone();
     let cols = columns(&db, None).await?;
+    let rules = crate::rules::list(&p).await?;
     let mut tables: Vec<Value> = Vec::new();
     let mut current = "";
     for c in &cols {
         if c.table != current {
             current = &c.table;
-            tables.push(json!({ "name": c.table, "columns": [] }));
+            // owner: coluna com o e-mail do dono da linha (regra por linha), ou null.
+            tables.push(json!({ "name": c.table, "columns": [], "owner": rules.get(&c.table) }));
         }
         if let Some(Value::Array(list)) = tables.last_mut().and_then(|t| t.get_mut("columns")) {
             list.push(c.json());
@@ -119,7 +122,8 @@ pub struct NewTable {
     columns: Vec<NewCol>,
 }
 
-pub async fn create_table(user: User, State(db): State<PgPool>, Json(b): Json<NewTable>) -> ApiResult<Json<Value>> {
+pub async fn create_table(user: User, p: Db, Json(b): Json<NewTable>) -> ApiResult<Json<Value>> {
+    let db = p.data.clone();
     user.admin()?;
     let name = valid_name(&b.name)?;
     if b.columns.len() > 100 {
@@ -131,7 +135,7 @@ pub async fn create_table(user: User, State(db): State<PgPool>, Json(b): Json<Ne
         parts.push(col_sql(&db, c).await?.1);
     }
     ddl(&db, &format!("CREATE TABLE public.{} ({})", ident(&name), parts.join(", "))).await?;
-    log(&db, user.id, "create_table", json!({ "table": name })).await?;
+    p.log(user.id, "create_table", json!({ "table": name })).await?;
     Ok(Json(json!({ "name": name })))
 }
 
@@ -140,12 +144,19 @@ pub struct Rename {
     name: String,
 }
 
-pub async fn rename_table(user: User, State(db): State<PgPool>, Path(table): Path<String>, Json(b): Json<Rename>) -> ApiResult<Json<Value>> {
+pub async fn rename_table(user: User, p: Db, Path(table): Path<String>, Json(b): Json<Rename>) -> ApiResult<Json<Value>> {
+    let db = p.data.clone();
     user.admin()?;
     columns(&db, Some(&table)).await?;
     let to = valid_name(&b.name)?;
     ddl(&db, &format!("ALTER TABLE public.{} RENAME TO {}", ident(&table), ident(&to))).await?;
-    log(&db, user.id, "rename_table", json!({ "table": table, "to": to })).await?;
+    sqlx::query("UPDATE masterbase.row_rules SET table_name = $2 WHERE project = $3 AND table_name = $1")
+        .bind(&table)
+        .bind(&to)
+        .bind(p.project)
+        .execute(&p.meta)
+        .await?;
+    p.log(user.id, "rename_table", json!({ "table": table, "to": to })).await?;
     Ok(Json(json!({ "name": to })))
 }
 
@@ -154,7 +165,8 @@ pub struct Confirm {
     confirm: String,
 }
 
-pub async fn drop_table(user: User, State(db): State<PgPool>, Path(table): Path<String>, Json(b): Json<Confirm>) -> ApiResult<Json<Value>> {
+pub async fn drop_table(user: User, p: Db, Path(table): Path<String>, Json(b): Json<Confirm>) -> ApiResult<Json<Value>> {
+    let db = p.data.clone();
     user.admin()?;
     columns(&db, Some(&table)).await?;
     if b.confirm != table {
@@ -162,11 +174,13 @@ pub async fn drop_table(user: User, State(db): State<PgPool>, Path(table): Path<
     }
     // Sem CASCADE: se outra tabela liga nesta, o Postgres recusa e o usuário vê o motivo.
     ddl(&db, &format!("DROP TABLE public.{}", ident(&table))).await?;
-    log(&db, user.id, "drop_table", json!({ "table": table })).await?;
+    sqlx::query("DELETE FROM masterbase.row_rules WHERE project = $2 AND table_name = $1").bind(&table).bind(p.project).execute(&p.meta).await?;
+    p.log(user.id, "drop_table", json!({ "table": table })).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
-pub async fn add_column(user: User, State(db): State<PgPool>, Path(table): Path<String>, Json(c): Json<NewCol>) -> ApiResult<Json<Value>> {
+pub async fn add_column(user: User, p: Db, Path(table): Path<String>, Json(c): Json<NewCol>) -> ApiResult<Json<Value>> {
+    let db = p.data.clone();
     user.admin()?;
     columns(&db, Some(&table)).await?;
     let (name, sql) = col_sql(&db, &c).await?;
@@ -175,7 +189,7 @@ pub async fn add_column(user: User, State(db): State<PgPool>, Path(table): Path<
         .execute(&db)
         .await
         .map_err(cast_error)?;
-    log(&db, user.id, "add_column", json!({ "table": table, "column": name })).await?;
+    p.log(user.id, "add_column", json!({ "table": table, "column": name })).await?;
     Ok(Json(json!({ "name": name })))
 }
 
@@ -198,10 +212,11 @@ pub struct ColChange {
 
 pub async fn change_column(
     user: User,
-    State(db): State<PgPool>,
+    p: Db,
     Path((table, column)): Path<(String, String)>,
     Json(b): Json<ColChange>,
 ) -> ApiResult<Json<Value>> {
+    let db = p.data.clone();
     user.admin()?;
     let cols = columns(&db, Some(&table)).await?;
     let col = editable(&cols, &column)?;
@@ -267,19 +282,32 @@ pub async fn change_column(
         }
     }
     tx.commit().await?;
+    if final_name != col.name {
+        sqlx::query("UPDATE masterbase.row_rules SET column_name = $3 WHERE project = $4 AND table_name = $1 AND column_name = $2")
+            .bind(&table)
+            .bind(&col.name)
+            .bind(&final_name)
+            .bind(p.project)
+            .execute(&p.meta)
+            .await?;
+    }
     let detail = json!({
         "table": table, "column": col.name, "renamed": final_name, "required": b.required,
         "type": changed_type.then_some(&b.kind), "default": b.default.as_ref().map(|d| &d.mode),
     });
-    log(&db, user.id, "change_column", detail).await?;
+    p.log(user.id, "change_column", detail).await?;
     Ok(Json(json!({ "name": final_name })))
 }
 
-pub async fn drop_column(user: User, State(db): State<PgPool>, Path((table, column)): Path<(String, String)>) -> ApiResult<Json<Value>> {
+pub async fn drop_column(user: User, p: Db, Path((table, column)): Path<(String, String)>) -> ApiResult<Json<Value>> {
+    let db = p.data.clone();
     user.admin()?;
     let cols = columns(&db, Some(&table)).await?;
     let col = editable(&cols, &column)?;
+    if crate::rules::list(&p).await?.get(&table) == Some(&col.name) {
+        return Err(bad("Esta coluna diz de quem é cada linha. Desligue a regra das linhas antes de apagar."));
+    }
     ddl(&db, &format!("ALTER TABLE public.{} DROP COLUMN {}", ident(&table), ident(&col.name))).await?;
-    log(&db, user.id, "drop_column", json!({ "table": table, "column": col.name })).await?;
+    p.log(user.id, "drop_column", json!({ "table": table, "column": col.name })).await?;
     Ok(Json(json!({ "ok": true })))
 }

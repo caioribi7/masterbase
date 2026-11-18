@@ -77,7 +77,8 @@ export function phrase(a) {
         : [{ t: d.type ? `mudou o tipo de ` : 'mudou a coluna ' }, { b: d.column }, ...(d.type ? [{ t: ` para ${d.type}` }] : []), { t: ' em ' }, T];
     case 'import': return [{ t: `importou ${d.rows} ${d.rows === 1 ? 'linha' : 'linhas'} em ` }, T];
     case 'add_user': return [{ t: 'deu acesso a ' }, { b: d.email }, { t: ` como ${roleLabel(d.role)}` }];
-    case 'change_user': return [{ t: d.active === false ? 'desativou ' : d.active ? 'reativou ' : d.password ? 'trocou a senha de ' : 'mudou o papel de ' }, { b: d.email }, ...(d.role ? [{ t: ` para ${roleLabel(d.role)}` }] : [])];
+    case 'change_user': if (d.reset_2fa) return [{ t: 'desligou a verificação em duas etapas de ' }, { b: d.email }];
+      return [{ t: d.active === false ? 'desativou ' : d.active ? 'reativou ' : d.password ? 'trocou a senha de ' : 'mudou o papel de ' }, { b: d.email }, ...(d.role ? [{ t: ` para ${roleLabel(d.role)}` }] : [])];
     case 'change_password': return [{ t: 'trocou a própria senha' }];
     case 'reset_password': return [{ t: 'criou uma senha nova pelo link' }];
     case 'password_link': return [{ t: 'gerou um link de senha para ' }, { b: d.email }];
@@ -91,6 +92,14 @@ export function phrase(a) {
     case 'auto_backup': return [{ t: 'fez o backup automático do dia' }];
     case 'backup_settings': return [{ t: d.enabled === false ? 'desligou o backup automático' : d.enabled ? 'ligou o backup automático' : d.minute != null ? 'mudou o horário do backup automático' : 'mudou quantos backups guardar' }];
     case 'backup_key': return [{ t: 'viu a chave de recuperação dos backups' }];
+    case '2fa_on': return [{ t: 'ligou a verificação em duas etapas' }];
+    case '2fa_off': return [{ t: 'desligou a verificação em duas etapas' }];
+    case '2fa_recovery': return [{ t: 'entrou com um código de recuperação' }];
+    case 'passkey_add': return [{ t: 'adicionou a passkey ' }, { b: d.name }];
+    case 'passkey_remove': return [{ t: 'apagou uma passkey' }];
+    case 'project_add': return [{ t: 'conectou o projeto ' }, { b: d.project }];
+    case 'project_remove': return [{ t: 'tirou o projeto ' }, { b: d.project }, { t: ' do painel' }];
+    case 'row_rule': return d.column ? [{ t: 'limitou as linhas de ' }, T, { t: ' pela coluna ' }, { b: d.column }] : [{ t: 'liberou todas as linhas de ' }, T];
     default: return [{ t: a.action }];
   }
 }

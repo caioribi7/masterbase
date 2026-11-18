@@ -18,7 +18,7 @@ fn check_password(p: &str) -> ApiResult<()> {
 pub async fn list_users(user: User, State(db): State<PgPool>) -> ApiResult<Json<Value>> {
     user.admin()?;
     let rows: Vec<Value> = sqlx::query_scalar(
-        "SELECT jsonb_build_object('id', id, 'name', name, 'email', email, 'role', role, 'active', active, 'created_at', created_at)
+        "SELECT jsonb_build_object('id', id, 'name', name, 'email', email, 'role', role, 'active', active, 'created_at', created_at, 'totp', totp_secret IS NOT NULL)
          FROM masterbase.users ORDER BY id",
     )
     .fetch_all(&db)
@@ -90,6 +90,8 @@ pub struct UserChange {
     role: Option<String>,
     active: Option<bool>,
     password: Option<String>,
+    /// true desliga o segundo fator da pessoa (perdeu o celular e os códigos).
+    reset_2fa: Option<bool>,
 }
 
 pub async fn change_user(user: User, State(db): State<PgPool>, Path(id): Path<i64>, Json(b): Json<UserChange>) -> ApiResult<Json<Value>> {
@@ -123,8 +125,12 @@ pub async fn change_user(user: User, State(db): State<PgPool>, Path(id): Path<i6
     if b.active == Some(false) || hash.is_some() {
         sqlx::query("DELETE FROM masterbase.sessions WHERE user_id = $1").bind(id).execute(&mut *tx).await?;
     }
+    if b.reset_2fa == Some(true) {
+        sqlx::query("UPDATE masterbase.users SET totp_secret = NULL WHERE id = $1").bind(id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM masterbase.recovery_codes WHERE user_id = $1").bind(id).execute(&mut *tx).await?;
+    }
     tx.commit().await?;
-    log(&db, user.id, "change_user", json!({ "email": email, "role": b.role, "active": b.active, "password": hash.is_some() })).await?;
+    log(&db, user.id, "change_user", json!({ "email": email, "role": b.role, "active": b.active, "password": hash.is_some(), "reset_2fa": b.reset_2fa })).await?;
     Ok(Json(json!({ "ok": true })))
 }
 

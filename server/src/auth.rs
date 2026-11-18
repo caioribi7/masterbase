@@ -1,4 +1,5 @@
 use crate::activity::log;
+use crate::limits;
 use crate::error::{bad, ApiError, ApiResult, UNAUTHORIZED};
 use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
@@ -145,7 +146,7 @@ pub async fn setup(State(db): State<PgPool>) -> ApiResult<Json<Value>> {
     )
     .fetch_one(&db)
     .await?;
-    Ok(Json(json!({ "signup": open, "name": name, "oauth": crate::oauth::enabled(), "mail": crate::mail::enabled() })))
+    Ok(Json(json!({ "signup": open, "name": name, "oauth": crate::oauth::enabled(), "mail": crate::mail::enabled(), "passkey": crate::passkey::enabled() })))
 }
 
 #[derive(Deserialize)]
@@ -186,38 +187,9 @@ pub struct LoginBody {
 }
 
 // Limites: 5 erros por e-mail ou 30 por IP em 15 min bloqueiam até a janela acabar.
-// Em memória: zera ao reiniciar. O do IP pega quem testa muitos e-mails do mesmo lugar.
-const MAX_FAILS: u32 = 5;
-const MAX_FAILS_IP: u32 = 30;
-const FAIL_WINDOW: Duration = Duration::from_secs(15 * 60);
-
-pub(crate) struct Attempts(HashMap<String, (u32, Instant)>);
-
-impl Attempts {
-    pub(crate) fn blocked(&self, key: &str, max: u32, now: Instant) -> bool {
-        matches!(self.0.get(key), Some(&(n, start)) if n >= max && now - start < FAIL_WINDOW)
-    }
-
-    pub(crate) fn fail(&mut self, key: &str, now: Instant) {
-        if self.0.len() > 10_000 {
-            self.0.retain(|_, (_, start)| now - *start < FAIL_WINDOW);
-        }
-        let e = self.0.entry(key.to_owned()).or_insert((0, now));
-        if now - e.1 >= FAIL_WINDOW {
-            *e = (0, now);
-        }
-        e.0 += 1;
-    }
-
-    pub(crate) fn clear(&mut self, key: &str) {
-        self.0.remove(key);
-    }
-}
-
-pub(crate) fn attempts() -> MutexGuard<'static, Attempts> {
-    static A: OnceLock<Mutex<Attempts>> = OnceLock::new();
-    A.get_or_init(|| Mutex::new(Attempts(HashMap::new()))).lock().unwrap_or_else(|p| p.into_inner())
-}
+// O do IP pega quem testa muitos e-mails do mesmo lugar. Guardado no banco (limits.rs).
+const MAX_FAILS: i32 = 5;
+const MAX_FAILS_IP: i32 = 30;
 
 /// IP de quem pediu. Atrás de um proxy na mesma máquina (Caddy, Nginx), vale o último X-Forwarded-For,
 /// que é o que o proxy viu. Fora disso o cabeçalho é ignorado: qualquer um poderia inventar.
@@ -241,12 +213,8 @@ pub async fn login(
     let email = b.email.trim().to_lowercase();
     let ip = client_ip(peer.ip(), &headers);
     let ip_key = format!("ip:{ip}");
-    {
-        let a = attempts();
-        let now = Instant::now();
-        if a.blocked(&email, MAX_FAILS, now) || a.blocked(&ip_key, MAX_FAILS_IP, now) {
-            return Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "Muitas tentativas. Espere 15 minutos."));
-        }
+    if limits::blocked(&db, &email, MAX_FAILS).await? || limits::blocked(&db, &ip_key, MAX_FAILS_IP).await? {
+        return Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "Muitas tentativas. Espere 15 minutos."));
     }
     let row: Option<(i64, String)> =
         sqlx::query_as("SELECT id, password_hash FROM masterbase.users WHERE email = $1 AND active")
@@ -259,17 +227,17 @@ pub async fn login(
         .map(|h| Argon2::default().verify_password(b.password.as_bytes(), &h).is_ok())
         .unwrap_or(false);
     if !ok || id == 0 {
-        {
-            let mut a = attempts();
-            a.fail(&email, Instant::now());
-            a.fail(&ip_key, Instant::now());
-        }
+        limits::fail(&db, &email).await?;
+        limits::fail(&db, &ip_key).await?;
         if crate::activity::logging() {
             println!("{} login recusado para {email} ({ip})", crate::activity::clock());
         }
         return Err(ApiError(StatusCode::UNAUTHORIZED, "E-mail ou senha incorretos."));
     }
-    attempts().clear(&email);
+    limits::clear(&db, &email).await?;
+    if let Some(t) = crate::mfa::ticket(&db, id, "senha").await? {
+        return Ok((jar, Json(json!({ "second_factor": true, "ticket": t }))));
+    }
     log(&db, id, "login", json!({})).await?;
     start_session(&db, jar, id, &headers).await
 }
@@ -284,18 +252,22 @@ pub async fn logout(State(db): State<PgPool>, jar: CookieJar) -> ApiResult<Cooki
     Ok(jar.remove(Cookie::build(COOKIE).path("/")))
 }
 
-pub async fn me(user: User, State(db): State<PgPool>) -> ApiResult<Json<Value>> {
-    let (name, email, role, project, pg): (String, String, String, String, String) = sqlx::query_as(
+pub async fn me(user: User, p: crate::projects::Db) -> ApiResult<Json<Value>> {
+    // project e postgres: do projeto aberto (cabeçalho X-MB-Project).
+    let (name, email, role, project, totp): (String, String, String, String, bool) = sqlx::query_as(
         "SELECT name, email, role,
-                coalesce(nullif((SELECT s.name FROM masterbase.settings s), ''), current_database()::text),
-                current_setting('server_version')
+                coalesce((SELECT p.name FROM masterbase.projects p WHERE p.id = $2),
+                         nullif((SELECT s.name FROM masterbase.settings s), ''), current_database()::text),
+                totp_secret IS NOT NULL
          FROM masterbase.users WHERE id = $1",
     )
     .bind(user.id)
-    .fetch_one(&db)
+    .bind(p.project)
+    .fetch_one(&p.meta)
     .await?;
+    let pg: String = sqlx::query_scalar("SELECT current_setting('server_version')").fetch_one(&p.data).await?;
     let role = if user.via_key && role == "admin" { "editor".to_owned() } else { role };
-    Ok(Json(json!({ "name": name, "email": email, "role": role, "project": project, "postgres": pg })))
+    Ok(Json(json!({ "name": name, "email": email, "role": role, "project": project, "project_id": p.project, "postgres": pg, "totp": totp })))
 }
 
 pub fn hash_password(password: &str) -> ApiResult<String> {
@@ -414,15 +386,11 @@ pub async fn forgot(State(db): State<PgPool>, ConnectInfo(peer): ConnectInfo<Soc
     }
     let email = b.email.trim().to_lowercase();
     let (by_email, by_ip) = (format!("forgot:{email}"), format!("forgot-ip:{}", client_ip(peer.ip(), &headers)));
-    {
-        let mut a = attempts();
-        let now = Instant::now();
-        if a.blocked(&by_email, 3, now) || a.blocked(&by_ip, 20, now) {
-            return Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "Muitos pedidos. Espere 15 minutos."));
-        }
-        a.fail(&by_email, now);
-        a.fail(&by_ip, now);
+    if limits::blocked(&db, &by_email, 3).await? || limits::blocked(&db, &by_ip, 20).await? {
+        return Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "Muitos pedidos. Espere 15 minutos."));
     }
+    limits::fail(&db, &by_email).await?;
+    limits::fail(&db, &by_ip).await?;
     tokio::spawn(async move {
         let id: Option<i64> = sqlx::query_scalar("SELECT id FROM masterbase.users WHERE email = $1 AND active")
             .bind(&email)
@@ -437,6 +405,66 @@ pub async fn forgot(State(db): State<PgPool>, ConnectInfo(peer): ConnectInfo<Soc
         }
     });
     Ok(Json(json!({ "ok": true })))
+}
+
+/// "Entrar com link por e-mail". Mesmas regras do "esqueci a senha": resposta igual para qualquer e-mail
+/// e envio à parte. O link vale 15 minutos e uma vez.
+pub async fn magic(State(db): State<PgPool>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(b): Json<ForgotBody>) -> ApiResult<Json<Value>> {
+    if !crate::mail::enabled() {
+        return Err(bad("Este servidor não manda e-mail."));
+    }
+    let email = b.email.trim().to_lowercase();
+    let (by_email, by_ip) = (format!("magic:{email}"), format!("magic-ip:{}", client_ip(peer.ip(), &headers)));
+    if limits::blocked(&db, &by_email, 3).await? || limits::blocked(&db, &by_ip, 20).await? {
+        return Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "Muitos pedidos. Espere 15 minutos."));
+    }
+    limits::fail(&db, &by_email).await?;
+    limits::fail(&db, &by_ip).await?;
+    tokio::spawn(async move {
+        let id: Option<i64> = sqlx::query_scalar("SELECT id FROM masterbase.users WHERE email = $1 AND active")
+            .bind(&email)
+            .fetch_optional(&db)
+            .await
+            .ok()
+            .flatten();
+        let Some(id) = id else { return };
+        let raw = random_token();
+        let saved = sqlx::query(
+            "WITH old AS (DELETE FROM masterbase.magic_tokens WHERE user_id = $2 OR expires_at < now())
+             INSERT INTO masterbase.magic_tokens (token_hash, user_id, expires_at) VALUES ($1, $2, now() + interval '15 minutes')",
+        )
+        .bind(sha(&raw))
+        .bind(id)
+        .execute(&db)
+        .await;
+        if saved.is_ok() {
+            crate::mail::magic_link(&db, id, &hex::encode(raw)).await;
+        }
+    });
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub struct MagicUse {
+    token: String,
+}
+
+pub async fn magic_use(State(db): State<PgPool>, headers: HeaderMap, jar: CookieJar, Json(b): Json<MagicUse>) -> ApiResult<(CookieJar, Json<Value>)> {
+    const BAD: ApiError = ApiError(StatusCode::NOT_FOUND, "Link inválido, vencido ou já usado. Peça outro.");
+    let raw = hex::decode(b.token.trim()).map_err(|_| BAD)?;
+    let id: i64 = sqlx::query_scalar(
+        "DELETE FROM masterbase.magic_tokens t USING masterbase.users u
+         WHERE t.token_hash = $1 AND t.expires_at > now() AND u.id = t.user_id AND u.active RETURNING t.user_id",
+    )
+    .bind(sha(&raw))
+    .fetch_optional(&db)
+    .await?
+    .ok_or(BAD)?;
+    if let Some(t) = crate::mfa::ticket(&db, id, "link").await? {
+        return Ok((jar, Json(json!({ "second_factor": true, "ticket": t }))));
+    }
+    log(&db, id, "login", json!({ "via": "link" })).await?;
+    start_session(&db, jar, id, &headers).await
 }
 
 #[derive(Deserialize)]
@@ -485,8 +513,12 @@ pub async fn reset_password(State(db): State<PgPool>, headers: HeaderMap, jar: C
     sqlx::query("UPDATE masterbase.users SET password_hash = $2 WHERE id = $1").bind(id).bind(hash).execute(&mut *tx).await?;
     sqlx::query("DELETE FROM masterbase.sessions WHERE user_id = $1").bind(id).execute(&mut *tx).await?;
     tx.commit().await?;
-    attempts().clear(&email);
+    limits::clear(&db, &email).await?;
     log(&db, id, "reset_password", json!({})).await?;
+    // Link de senha prova o e-mail, não o celular: com segundo fator ligado, ainda pede o código.
+    if let Some(t) = crate::mfa::ticket(&db, id, "link de senha").await? {
+        return Ok((jar, Json(json!({ "second_factor": true, "ticket": t }))));
+    }
     start_session(&db, jar, id, &headers).await
 }
 
@@ -504,21 +536,6 @@ pub async fn cli_link(db: &PgPool, email: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn login_blocks_after_five_fails() {
-        let mut a = Attempts(HashMap::new());
-        let t = Instant::now();
-        for _ in 0..MAX_FAILS - 1 {
-            a.fail("x@y", t);
-        }
-        assert!(!a.blocked("x@y", MAX_FAILS, t));
-        a.fail("x@y", t);
-        assert!(a.blocked("x@y", MAX_FAILS, t));
-        assert!(!a.blocked("x@y", MAX_FAILS_IP, t));
-        assert!(!a.blocked("outro@y", MAX_FAILS, t));
-        assert!(!a.blocked("x@y", MAX_FAILS, t + FAIL_WINDOW));
-    }
 
     #[test]
     fn key_rate_per_minute() {

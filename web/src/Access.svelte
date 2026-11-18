@@ -128,10 +128,11 @@
                   </select>
                 {/if}
               </td>
-              <td>{u.active ? 'ativa' : 'desativada'}</td>
+              <td>{u.active ? 'ativa' : 'desativada'}{#if u.totp} <span class="badge" title="Verificação em duas etapas ligada">2 etapas</span>{/if}</td>
               <td class="end">
                 {#if u.id !== me}
                   {#if u.active}<button class="glass btn small" onclick={() => passwordLink(u)}>Link de senha</button>{/if}
+                  {#if u.totp}<button class="glass btn small" title="Para quem perdeu o celular e os códigos de recuperação" onclick={() => confirm(`Desligar a verificação em duas etapas de ${u.name}? A pessoa entra só com a senha até ligar de novo.`) && change(u, { reset_2fa: true })}>Desligar 2 etapas</button>{/if}
                   <button class="glass btn small" class:btn-danger={u.active} onclick={() => change(u, { active: !u.active })}>{u.active ? 'Desativar' : 'Reativar'}</button>
                 {/if}
               </td>

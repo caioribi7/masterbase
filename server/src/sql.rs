@@ -76,10 +76,16 @@ pub struct SqlBody {
 
 /// Roda o texto como está, numa transação. Devolve o resultado do último comando.
 /// Protocolo simples do Postgres: todo valor chega como texto, então qualquer tipo aparece.
-pub async fn run(user: User, State(db): State<PgPool>, Json(b): Json<SqlBody>) -> Result<Json<Value>, Response> {
+pub async fn run(user: User, p: crate::projects::Db, Json(b): Json<SqlBody>) -> Result<Json<Value>, Response> {
     user.admin().map_err(IntoResponse::into_response)?;
-    let Some(pool) = SQL_POOL.get() else {
-        return Err(bad("O editor SQL está desligado neste servidor. Veja Configurações.").into_response());
+    // Projeto principal: papel restrito (MB_SQL_URL). Outro projeto: o usuário do endereço que o administrador conectou.
+    let pool = if p.project != 0 {
+        &p.data
+    } else {
+        match SQL_POOL.get() {
+            Some(pool) => pool,
+            None => return Err(bad("O editor SQL está desligado neste servidor. Veja Configurações.").into_response()),
+        }
     };
     let sql = b.sql.trim();
     if sql.is_empty() {
@@ -92,7 +98,7 @@ pub async fn run(user: User, State(db): State<PgPool>, Json(b): Json<SqlBody>) -
     let result = execute(pool, sql, b.read_only).await.map_err(db_error)?;
     if !b.read_only {
         let short: String = sql.chars().take(500).collect();
-        log(&db, user.id, "sql", json!({ "sql": short })).await.map_err(IntoResponse::into_response)?;
+        p.log(user.id, "sql", json!({ "sql": short })).await.map_err(IntoResponse::into_response)?;
     }
     let (columns, rows, affected, truncated, statements) = result;
     Ok(Json(json!({
