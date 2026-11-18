@@ -92,7 +92,7 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
 - `install.sh`: um comando. Postgres via apt, dnf, pacman ou Homebrew, banco com senha aleatória, binário da página de releases com soma conferida, config em `~/.config/masterbase/masterbase.env` (600).
 - Comando `masterbase`: abre o painel e o navegador. `configurar` (banco, porta, só este computador / rede local / internet com HTTPS). `servico` (unit do systemd com o usuário de quem chamou).
 - Binário único com a tela embutida: 4,7 MB estático (musl), ~4 MB de memória parado.
-- `.github/workflows/release.yml`: tag `v*` compila Linux x86_64/arm64 e macOS arm64/x86_64 e publica. Releases 0.3.0 e 0.3.1 publicadas.
+- `.github/workflows/release.yml`: tag `v*` compila Linux x86_64/arm64 e macOS arm64/x86_64 e publica. Releases 0.3.0, 0.3.1 e 0.4.0 publicadas.
 
 **Código**
 - `server/src/`: `main` (rotas e comandos), `config` (arquivo, perguntas, serviço), `auth` (login, sessão, papéis), `access` (pessoas e chaves), `data` (linhas, importar), `schema` (estrutura), `query` (consultas), `backup`, `activity` (auditoria e início), `catalog` (nomes e tipos), `rules` (regra por linha), `projects` (vários bancos), `mfa` (duas etapas), `passkey`, `oauth` (Google e GitHub), `mail` (SMTP), `limits` (tentativas), `error`.

@@ -22,7 +22,7 @@
 
 O Masterbase fica na frente de um banco Postgres comum. Você cria tabelas, liga uma na outra, edita os dados como numa planilha e monta consultas escolhendo opções. O banco continua sendo Postgres de verdade: dá para conectar qualquer outra ferramenta nele quando precisar.
 
-> **Estado do projeto:** versão 0.3. Funciona de ponta a ponta e tem testes, mas ainda não rodou em servidor de produção. Veja [o que falta](MVP.md#falta) antes de usar com dados importantes.
+> **Estado do projeto:** versão 0.4. Funciona de ponta a ponta e tem testes, mas ainda não rodou em servidor de produção. Veja [o que falta](MVP.md#falta) antes de usar com dados importantes.
 
 ## O que dá para fazer
 

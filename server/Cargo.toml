@@ -1,6 +1,6 @@
 [package]
 name = "masterbase"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 description = "Postgres com tela visual, para quem não sabe SQL"
