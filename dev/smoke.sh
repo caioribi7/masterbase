@@ -85,6 +85,12 @@ key 403 "chave não faz backup"                POST /backups
 key 403 "chave não vê a chave de backup"      POST /backups/key '{"password":"x"}'
 key 403 "chave não muda o backup automático"  PATCH /backups/settings '{"enabled":false}'
 key 403 "chave não roda SQL"                   POST /sql '{"sql":"SELECT 1"}'
+# limite por minuto (só quando o servidor sobe com MB_KEY_RATE=KEY_RATE)
+if [ -n "${KEY_RATE:-}" ]; then
+  codes=""; for _ in $(seq "$KEY_RATE"); do codes="$codes $(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $KEY" "$BASE/tables")"; done
+  case "$codes" in *429*) echo "ok   chave trava ao passar de $KEY_RATE pedidos por minuto";; *) echo "FALHA chave sem limite: $codes"; fails=$((fails+1));; esac
+  check 200 "a sessão não entra no limite da chave" GET /tables
+fi
 KEY="mb_000000000000000000000000000000000000000000000000"
 key 401 "chave inventada"                     GET  /tables
 

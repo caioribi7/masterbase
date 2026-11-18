@@ -33,6 +33,6 @@ Já sabemos destes e eles estão em [MVP.md](MVP.md#falta). Não precisam de avi
 
 - o servidor conecta como dono do banco (o editor SQL usa um papel à parte, só com acesso a linhas de `public`);
 - a conexão com o Postgres não usa TLS;
-- o bloqueio de tentativas de login e de "esqueci a senha" (por e-mail e por IP) fica em memória e zera ao reiniciar;
+- o bloqueio de tentativas de login e de "esqueci a senha" (por e-mail e por IP) e o limite de pedidos por chave de API ficam em memória e zeram ao reiniciar;
 - não há limite de requisições por chave de API;
 - enquanto nenhuma conta existe, quem acessar primeiro cria a conta de administrador.

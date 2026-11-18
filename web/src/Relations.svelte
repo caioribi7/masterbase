@@ -98,7 +98,7 @@
   <div class="page-head">
     <div>
       <h1 class="brand">Relações</h1>
-      <p>Como as tabelas se ligam. Arraste com o mouse para mover. Para criar uma ligação, adicione uma coluna do tipo "ligação com…" na Estrutura.</p>
+      <p>Como as tabelas se ligam.<span class="desk"> Arraste com o mouse para mover.</span> Para criar uma ligação, adicione uma coluna do tipo "ligação com…" na Estrutura.</p>
     </div>
     <div class="actions">
       <a class="glass btn" href={href('estrutura')}><Icon name="Estrutura" size={15} stroke="#C9CCEB" /> Abrir Estrutura</a>
@@ -108,6 +108,24 @@
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 
   {#if layout?.boxes.length}
+    <!-- Celular: lista de quem aponta para quem. O diagrama não cabe na tela. -->
+    <div class="list">
+      {#each schema as t (t.name)}
+        {@const out = t.columns.filter((c) => c.link)}
+        {@const into = schema.flatMap((o) => o.columns.filter((c) => c.link === t.name).map((c) => ({ table: o.name, col: c.name })))}
+        <a class="item-edge" href={href('estrutura', t.name)}><span class="item">
+          <span class="item-head"><strong class="brand">{t.name}</strong><span class="mono count">{t.columns.length} colunas</span></span>
+          {#each out as c}
+            <span class="rel"><span class="arrow">→</span><span><span class="mono">{c.name}</span> liga com <strong>{c.link}</strong></span></span>
+          {/each}
+          {#each into as r}
+            <span class="rel"><span class="arrow in">←</span><span><strong>{r.table}</strong> liga aqui por <span class="mono">{r.col}</span></span></span>
+          {/each}
+          {#if !out.length && !into.length}<span class="rel solta">Sem ligações</span>{/if}
+        </span></a>
+      {/each}
+    </div>
+
     <div class="panel-edge grow-box"><!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="panel canvas" class:grabbing onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up} onclickcapture={click}>
       <div class="stage" style:width="{layout.width}px" style:height="{layout.height}px">
@@ -131,7 +149,7 @@
         {/each}
       </div>
     </div></div>
-    {#if !layout.lines.length}<p class="hint">Nenhuma ligação ainda. As tabelas estão soltas.</p>{/if}
+    {#if !layout.lines.length}<p class="hint desk">Nenhuma ligação ainda. As tabelas estão soltas.</p>{/if}
   {:else if schema}
     <div class="empty-state"><Glyph size={56} /><p>Nenhuma tabela ainda.</p></div>
   {/if}
@@ -158,4 +176,23 @@
   .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--soft); }
   .kind { font-size: 10px; color: var(--lavender-3); white-space: nowrap; }
   .kind.link { color: var(--lavender); }
+
+  .list { display: none; flex-direction: column; gap: 10px; }
+  .item-edge { padding: 1px; border-radius: 16px; background: var(--edge); text-decoration: none; color: var(--text); }
+  .item { border-radius: 15px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; background: linear-gradient(180deg, #17194A 0%, #11123A 100%); box-shadow: var(--inner); }
+  .item-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .item-head strong { font-size: 17px; }
+  .count { font-size: 11px; color: var(--lavender-3); }
+  .rel { display: flex; gap: 10px; font-size: 14px; line-height: 20px; color: var(--lavender-2); }
+  .rel strong { color: var(--text); font-weight: 600; }
+  .rel .mono { font-size: 12px; color: var(--soft); }
+  .arrow { width: 16px; flex-shrink: 0; color: var(--lime); }
+  .arrow.in { color: var(--lavender); }
+  .solta { color: var(--lavender-3); font-size: 13px; }
+
+  @media (max-width: 700px) {
+    .desk { display: none; }
+    .list { display: flex; }
+    .grow-box { display: none; }
+  }
 </style>

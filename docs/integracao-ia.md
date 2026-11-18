@@ -234,7 +234,7 @@ curl -H "Authorization: Bearer $MASTERBASE_KEY" "$MASTERBASE_URL/api/schema"
 4. For many inserts use `/import` (one transaction) instead of a loop of single inserts.
 5. Identify rows by the primary key (`pk: true` column), not by position.
 6. The API has no raw SQL, no joins, no aggregates and no realtime. Fetch rows and join or aggregate in your code.
-7. There is no rate limit yet, but be polite: batch writes and avoid tight polling loops.
+7. Each key may make 300 requests per minute by default (the server owner can change it with `MB_KEY_RATE`). Past that the API answers 429 until the minute is over: wait and retry. Batch writes and avoid tight polling loops.
 
 ## What the API does not do
 

@@ -65,6 +65,7 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
 - Ninguém muda o próprio papel nem se desativa (não tem como se trancar para fora).
 - Trocar a própria senha encerra as outras sessões; redefinir pelo link ou desativar encerra todas.
 - Chave de API nunca administra: não mexe em estrutura, pessoas, chaves nem backups.
+- Cada chave faz até 300 pedidos por minuto (`MB_KEY_RATE`). Passou disso, 429 até o minuto virar.
 - Nome de tabela e coluna existente: conferido no catálogo. Nome novo: validado e sempre entre aspas. Tipo e operador: lista fixa. Valor: sempre parametrizado.
 - Consultas: não existe SQL livre. O servidor monta o SELECT.
 - Editor SQL num papel sem superusuário, sem CREATE e sem TRIGGER; o servidor confere isso ao subir e desliga o editor se o papel tiver poder demais.
@@ -89,7 +90,7 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
 
 **Testes**
 - `cargo test`: 13 testes (aspas, rótulos, tipos, nomes, bloqueio de login, SELECT das consultas, nomes e datas de backup, horário do automático, rotação 7+4, chave, leitura da URL do banco).
-- `dev/wsl.sh smoke`: 116 checagens de ponta a ponta na API, num banco separado (`masterbase_smoke`, porta 8081). Cobre papéis, chaves, consultas, editor SQL, configurações, importar, backup criptografado, restaurar, chave de recuperação, horário do automático e `/llms.txt`.
+- `dev/wsl.sh smoke`: 178 checagens de ponta a ponta na API, num banco separado (`masterbase_smoke`, porta 8081). Cobre papéis, chaves, consultas, editor SQL, configurações, importar, backup criptografado, restaurar, chave de recuperação, horário do automático e `/llms.txt`.
 - Instalador no WSL: instala, cria banco, `masterbase` serve a tela; segunda vez mantém a config. `configurar` testado com terminal simulado.
 - Navegador (1440 px): todas as páginas abertas; criar tabela com ligação, nova linha, ordenar, apagar, rodar consulta, fazer backup.
 
@@ -102,11 +103,11 @@ Postgres com tela visual. Quem não sabe SQL cria tabela, liga tabelas, consulta
 - Vários projetos (vários bancos) num Masterbase só.
 - Arrastar para ligar tabelas no diagrama. Hoje a ligação nasce na Estrutura.
 - Gráfico rápido do resultado da consulta.
-- Limite de login persistente (hoje por e-mail e por IP, em memória). Limite de pedidos por chave de API.
+- Limite de login persistente (hoje por e-mail e por IP, em memória). 
 - TLS no sqlx para banco remoto. Cookie Secure exige HTTPS fora do localhost.
 - A tela Estrutura e os backups usam o dono do banco. Só o editor SQL tem papel restrito.
 - Contagem com `count(*)`: lenta acima de ~1M linhas.
-- Celular: Tabelas tem fichas; Consultas, Relações e Editor SQL funcionam, mas foram pensados para tela grande.
+- Celular: Tabelas e Consultas mostram fichas, Relações vira lista de ligações. O Editor SQL funciona, mas foi pensado para tela grande.
 - Instalador: só apt e Homebrew. Fedora/Arch à mão. `servico` e o macOS não testados. Primeiro release ainda não publicado.
 
 ## Rodar

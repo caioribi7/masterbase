@@ -19,6 +19,8 @@
   const load = () => api('/keys').then((r) => (keys = r)).catch(fail);
   load();
   api('/tables').then((t) => (tables = t)).catch(() => {});
+  let rate = $state(null); // pedidos por minuto por chave
+  api('/settings').then((r) => (rate = r.key_rate)).catch(() => {});
 
   const table = $derived(tables[0]?.name ?? 'sua_tabela');
   const base = $derived(`${location.origin}/api/tables/${encodeURIComponent(table)}`);
@@ -81,7 +83,7 @@
 
   <div class="panel-edge"><div class="panel how">
     <span class="label">Como usar</span>
-    <p class="hint">Mande a chave no cabeçalho <span class="mono">Authorization</span>. Chave nunca mexe em estrutura, pessoas ou backups.</p>
+    <p class="hint">Mande a chave no cabeçalho <span class="mono">Authorization</span>. Chave nunca mexe em estrutura, pessoas ou backups.{#if rate} Cada chave faz até {rate} pedidos por minuto; passou disso, o servidor responde 429 até o minuto virar.{/if}</p>
     <span class="cap">Ler linhas (com filtro e ordem)</span>
     <pre class="code">curl -H "Authorization: Bearer SUA_CHAVE" \
   "{base}?page=1&sort=id&desc=true"</pre>

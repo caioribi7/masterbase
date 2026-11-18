@@ -97,7 +97,7 @@ Mande o arquivo [docs/integracao-ia.md](docs/integracao-ia.md) para uma IA (Chat
 O Masterbase guarda dados dos outros, então isso vem primeiro:
 
 - Senhas em argon2id. Sessão em cookie `HttpOnly`, `Secure`, `SameSite=Strict`. O banco guarda só o hash do token de sessão e das chaves de API.
-- Cinco senhas erradas bloqueiam aquele e-mail por 15 minutos.
+- Cinco senhas erradas bloqueiam aquele e-mail por 15 minutos. Cada chave de API faz até 300 pedidos por minuto.
 - O papel de cada pessoa é conferido no servidor em toda ação que escreve.
 - Nenhum SQL é montado com texto digitado. Nomes de tabela e coluna são conferidos no catálogo do Postgres, tipos e operadores vêm de listas fixas, valores sempre vão como parâmetro.
 - As contas e o histórico ficam num schema separado (`masterbase`), que a tela e a API não alcançam.
@@ -128,7 +128,7 @@ cd web && npm ci && npm run build                       # a tela vai para web/di
 cd server && DATABASE_URL=postgresql://... cargo run    # compila com a tela dentro
 cd server && cargo test                                 # testes do servidor
 cd web && npm run dev                                   # tela com recarga ao vivo em localhost:5173
-bash dev/smoke.sh                                       # 176 checagens na API (banco novo com dev/seed.sql)
+bash dev/smoke.sh                                       # 178 checagens na API (banco novo com dev/seed.sql)
 ```
 
 A página de apresentação fica em `site/` (React e Vite, fundo animado Flux Lines do [React Bits](https://reactbits.dev)): `cd site && npm ci && npm run dev`. O `npm run build` gera arquivos estáticos em `site/dist`, que servem em qualquer hospedagem.

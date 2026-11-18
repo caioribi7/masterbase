@@ -72,11 +72,15 @@ impl FromRequestParts<PgPool> for User {
         let bearer = parts.headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "));
         let mut session = None;
         let (row, via_key): (Option<(i64, String)>, bool) = if let Some(key) = bearer {
+            let hash = sha(key.as_bytes());
+            if !key_rate().allow(&hash, key_limit(), Instant::now()) {
+                return Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "Muitos pedidos com esta chave. Espere um minuto."));
+            }
             let row = sqlx::query_as(
                 "UPDATE masterbase.api_keys k SET last_used_at = now() FROM masterbase.users u
                  WHERE k.token_hash = $1 AND u.id = k.user_id AND u.active RETURNING u.id, k.role",
             )
-            .bind(sha(key.as_bytes()))
+            .bind(hash)
             .fetch_optional(db)
             .await?;
             (row, true)
@@ -103,6 +107,35 @@ impl FromRequestParts<PgPool> for User {
         let (id, role) = row.ok_or(UNAUTHORIZED)?;
         Ok(User { id, role: Role::parse(&role).ok_or(UNAUTHORIZED)?, via_key, session })
     }
+}
+
+/// Pedidos por minuto que cada chave de API pode fazer (MB_KEY_RATE, padrão 300).
+/// Segura um sistema com defeito em laço antes de ele pesar no banco. Em memória, por servidor.
+pub fn key_limit() -> u32 {
+    std::env::var("MB_KEY_RATE").ok().and_then(|v| v.trim().parse().ok()).filter(|&n| n > 0).unwrap_or(300)
+}
+
+pub(crate) struct KeyRate(HashMap<Vec<u8>, (u32, Instant)>);
+
+impl KeyRate {
+    /// Janela de um minuto que começa no primeiro pedido.
+    pub(crate) fn allow(&mut self, key: &[u8], max: u32, now: Instant) -> bool {
+        const WINDOW: Duration = Duration::from_secs(60);
+        if self.0.len() > 10_000 {
+            self.0.retain(|_, (_, start)| now - *start < WINDOW);
+        }
+        let e = self.0.entry(key.to_vec()).or_insert((0, now));
+        if now - e.1 >= WINDOW {
+            *e = (0, now);
+        }
+        e.0 += 1;
+        e.0 <= max
+    }
+}
+
+fn key_rate() -> MutexGuard<'static, KeyRate> {
+    static K: OnceLock<Mutex<KeyRate>> = OnceLock::new();
+    K.get_or_init(|| Mutex::new(KeyRate(HashMap::new()))).lock().unwrap_or_else(|p| p.into_inner())
 }
 
 /// Cadastro aberto só enquanto não existe conta: a primeira pessoa vira dona da instância.
@@ -485,6 +518,18 @@ mod tests {
         assert!(!a.blocked("x@y", MAX_FAILS_IP, t));
         assert!(!a.blocked("outro@y", MAX_FAILS, t));
         assert!(!a.blocked("x@y", MAX_FAILS, t + FAIL_WINDOW));
+    }
+
+    #[test]
+    fn key_rate_per_minute() {
+        let mut k = KeyRate(HashMap::new());
+        let t = Instant::now();
+        for _ in 0..3 {
+            assert!(k.allow(b"a", 3, t));
+        }
+        assert!(!k.allow(b"a", 3, t));
+        assert!(k.allow(b"b", 3, t));
+        assert!(k.allow(b"a", 3, t + Duration::from_secs(60)));
     }
 
     #[test]

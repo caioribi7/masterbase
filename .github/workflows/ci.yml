@@ -59,8 +59,8 @@ jobs:
           (cd server && cargo build)
           # SMTP falso e um GitHub de mentira: testa e-mail e o começo do login com GitHub
           python3 dev/smtp-sink.py 2525 /tmp/mb-mail &
-          export MB_URL=http://127.0.0.1:8081 MB_SMTP_HOST=127.0.0.1 MB_SMTP_PORT=2525 MB_MAIL_FROM=painel@ci.test MB_GITHUB_ID=smoke-id MB_GITHUB_SECRET=smoke-secret
+          export MB_KEY_RATE=20 MB_URL=http://127.0.0.1:8081 MB_SMTP_HOST=127.0.0.1 MB_SMTP_PORT=2525 MB_MAIL_FROM=painel@ci.test MB_GITHUB_ID=smoke-id MB_GITHUB_SECRET=smoke-secret
           MB_SQL_URL=postgresql://masterbase_sql:ci-sql@127.0.0.1:5432/masterbase MB_CONFIG=/tmp/mb-ci.env \
           MB_ADDR=127.0.0.1:8081 MB_WEB_DIR=web/dist MB_BACKUP_DIR=/tmp/mb-backups server/target/debug/masterbase &
           for _ in $(seq 30); do curl -s -o /dev/null http://127.0.0.1:8081/api/setup && break; sleep 1; done
-          SINK=/tmp/mb-mail bash dev/smoke.sh http://127.0.0.1:8081
+          KEY_RATE=20 SINK=/tmp/mb-mail bash dev/smoke.sh http://127.0.0.1:8081

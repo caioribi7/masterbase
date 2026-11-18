@@ -22,6 +22,8 @@
   let saveName = $state('');
   let showSql = $state(false);
 
+  // Título de cada ficha no celular: a primeira coluna de texto (nome), senão a primeira.
+  const titleCol = $derived(result?.columns.find((c) => c.label === 'texto') ?? result?.columns[0]);
   const cols = $derived(schema.find((t) => t.name === spec.table)?.columns ?? []);
   const fail = (e) => (e.status === 401 ? onAuthLost() : (error = e.message));
 
@@ -61,6 +63,8 @@
     error = '';
     try {
       result = await api('/query', { method: 'POST', body: body() });
+      // No celular o resultado fica abaixo do formulário: rola até ele.
+      if (matchMedia('(max-width: 700px)').matches) setTimeout(() => document.querySelector('.tools')?.scrollIntoView({ behavior: 'smooth' }), 50);
     } catch (err) {
       fail(err);
     }
@@ -128,10 +132,12 @@
 
   <div class="panel-edge"><form class="panel builder" onsubmit={run}>
     <div class="line">
-      <span class="word">Mostrar</span>
-      <select class="field small" value={spec.table} onchange={(e) => pickTable(e.currentTarget.value)} aria-label="Tabela">
-        {#each schema as t}<option value={t.name}>{t.name}</option>{/each}
-      </select>
+      <span class="grp">
+        <span class="word">Mostrar</span>
+        <select class="field small" value={spec.table} onchange={(e) => pickTable(e.currentTarget.value)} aria-label="Tabela">
+          {#each schema as t}<option value={t.name}>{t.name}</option>{/each}
+        </select>
+      </span>
       <span class="word">com as colunas</span>
       <div class="chips">
         {#each cols as c}
@@ -142,31 +148,37 @@
     </div>
 
     {#each spec.filters as f, i}
-      <div class="line">
+      <div class="line filter">
         <span class="word">{i ? 'e' : 'onde'}</span>
         <select class="field small" bind:value={f.col} aria-label="Coluna">{#each cols as c}<option value={c.name}>{c.name}</option>{/each}</select>
         <select class="field small op" bind:value={f.op} aria-label="Condição">{#each ops as o}<option value={o}>{o}</option>{/each}</select>
-        {#if !f.op.endsWith('vazio')}<input class="field small" bind:value={f.val} placeholder="valor" aria-label="Valor" required />{/if}
-        <button type="button" class="icon-btn" aria-label="Tirar condição" onclick={() => spec.filters.splice(i, 1)}><Icon name="close" size={14} /></button>
+        {#if !f.op.endsWith('vazio')}<input class="field small val" bind:value={f.val} placeholder="valor" aria-label="Valor" required />{/if}
+        <button type="button" class="icon-btn x" aria-label="Tirar condição" onclick={() => spec.filters.splice(i, 1)}><Icon name="close" size={14} /></button>
       </div>
     {/each}
 
     <div class="line">
-      <button type="button" class="glass btn small" onclick={() => spec.filters.push({ col: cols[0]?.name ?? '', op: 'é', val: '' })}><Icon name="plus" size={14} /> Condição</button>
-      <span class="word gap">ordenar por</span>
-      <select class="field small" bind:value={spec.sort} aria-label="Ordenar por">
-        <option value={null}>sem ordem</option>
-        {#each cols as c}<option value={c.name}>{c.name}</option>{/each}
-      </select>
-      {#if spec.sort}
-        <select class="field small op" bind:value={spec.desc} aria-label="Direção"><option value={false}>crescente</option><option value={true}>decrescente</option></select>
-      {/if}
-      <span class="word gap">até</span>
-      <input class="field small num" type="number" min="1" max="500" bind:value={spec.limit} aria-label="Máximo de linhas" />
-      <span class="word">linhas</span>
+      <button type="button" class="glass btn small add-cond" onclick={() => spec.filters.push({ col: cols[0]?.name ?? '', op: 'é', val: '' })}><Icon name="plus" size={14} /> Condição</button>
+      <span class="grp sort">
+        <span class="word gap">ordenar por</span>
+        <select class="field small" bind:value={spec.sort} aria-label="Ordenar por">
+          <option value={null}>sem ordem</option>
+          {#each cols as c}<option value={c.name}>{c.name}</option>{/each}
+        </select>
+        {#if spec.sort}
+          <select class="field small op" bind:value={spec.desc} aria-label="Direção"><option value={false}>crescente</option><option value={true}>decrescente</option></select>
+        {/if}
+      </span>
+      <span class="grp">
+        <span class="word gap">até</span>
+        <input class="field small num" type="number" min="1" max="500" bind:value={spec.limit} aria-label="Máximo de linhas" />
+        <span class="word">linhas</span>
+      </span>
       <span class="grow"></span>
-      {#if canEdit()}<button type="button" class="glass btn small" onclick={() => { saveName = saved.find((q) => q.id === activeId)?.name ?? ''; saving = true; }}><Icon name="save" size={14} /> Salvar</button>{/if}
-      <button class="btn-primary small" disabled={busy || !spec.table}><Icon name="play" size={12} stroke="#12133A" weight={2.6} /> Rodar</button>
+      <span class="acts">
+        {#if canEdit()}<button type="button" class="glass btn small" onclick={() => { saveName = saved.find((q) => q.id === activeId)?.name ?? ''; saving = true; }}><Icon name="save" size={14} /> Salvar</button>{/if}
+        <button class="btn-primary small" disabled={busy || !spec.table}><Icon name="play" size={12} stroke="#12133A" weight={2.6} /> Rodar</button>
+      </span>
     </div>
   </form></div>
 
@@ -179,7 +191,19 @@
       <button class="glass btn small" aria-expanded={showSql} onclick={() => (showSql = !showSql)}>{showSql ? 'Esconder SQL' : 'Ver SQL'}</button>
     </div>
     {#if showSql}<pre class="code">{result.sql}</pre>{/if}
-    <div class="panel-edge"><div class="panel scroll-x">
+    <div class="cards">
+      {#each result.rows as row, i (i)}
+        <div class="card-edge"><div class="card">
+          <strong class="card-title">{show(row[titleCol.name])}</strong>
+          {#each result.columns as c}
+            {#if c !== titleCol}<div class="card-kv"><span>{c.name}</span><strong class:mono={c.label !== 'texto' && c.label !== 'e-mail' && c.label !== 'opção'}>{show(row[c.name])}</strong></div>{/if}
+          {/each}
+        </div></div>
+      {:else}
+        <p class="none">Nada bate com essas condições.</p>
+      {/each}
+    </div>
+    <div class="panel-edge grid-view"><div class="panel scroll-x">
       <table class="simple">
         <thead><tr>{#each result.columns as c}<th>{c.name}</th>{/each}</tr></thead>
         <tbody>
@@ -227,4 +251,35 @@
   .tools { display: flex; align-items: center; gap: 8px; font-size: 13px; }
   .count { color: var(--lavender-2); }
   button:disabled { opacity: .6; }
+  .grp, .acts { display: inline-flex; align-items: center; gap: 10px; }
+
+  .cards { display: none; flex-direction: column; gap: 10px; }
+  .card-edge { padding: 1px; border-radius: 16px; background: var(--edge); }
+  .card { border-radius: 15px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; background: linear-gradient(180deg, #17194A 0%, #11123A 100%); box-shadow: var(--inner); }
+  .card-title { font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card-kv { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+  .card-kv span { color: var(--lavender-2); flex-shrink: 0; }
+  .card-kv strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cards .none { padding: 32px 0; text-align: center; color: var(--lavender-2); }
+
+  /* Celular: cada parte da frase numa linha, campos na largura toda, resultado em fichas. */
+  @media (max-width: 700px) {
+    .builder { padding: 16px; gap: 14px; }
+    .line { gap: 8px; }
+    .word.gap { margin-left: 0; }
+    .grp { width: 100%; }
+    .grp .field, .grp .op { flex: 1; min-width: 0; width: auto; }
+    .grp .num { flex: 0 0 84px; }
+    .filter { display: grid; grid-template-columns: auto 1fr 1fr auto; padding: 10px; border-radius: 12px; background: rgba(12,13,40,.6); border: 1px solid rgba(154,160,224,.14); }
+    .filter .field { width: auto; min-width: 0; }
+    .filter .val { grid-column: 2 / 4; }
+    .filter .x { grid-column: 4; grid-row: 1; }
+    .add-cond { width: 100%; justify-content: center; }
+    .grow { display: none; }
+    .acts { width: 100%; }
+    .acts > * { flex: 1; justify-content: center; height: 44px; }
+    .del { opacity: 1; }
+    .cards { display: flex; }
+    .grid-view { display: none; }
+  }
 </style>

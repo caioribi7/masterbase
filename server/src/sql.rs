@@ -199,6 +199,7 @@ pub async fn settings(user: User, State(db): State<PgPool>) -> ApiResult<Json<Va
         "url": crate::mail::public_url(),
         "mail": crate::mail::enabled(),
         "oauth": crate::oauth::enabled(),
+        "key_rate": crate::auth::key_limit(),
     })))
 }
 
